@@ -1,11 +1,42 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from './api';
 import { useAsyncData } from './hooks';
-import { BoardColumns, ErrorState, HistoryFilters, Layout, LoadingState, SectionHeader, SummaryCards, TaskDetail, TaskList } from './components';
+import {
+  BoardColumns,
+  ErrorState,
+  HistoryFilters,
+  Layout,
+  LoadingState,
+  Panel,
+  SummaryCards,
+  TaskDetail,
+  TaskList,
+  ViewHero,
+} from './components';
 import { Task } from './types';
 
+type ViewMode = 'today' | 'board' | 'history';
+
+const viewMeta: Record<ViewMode, { eyebrow: string; title: string; description: string }> = {
+  today: {
+    eyebrow: 'Focus mode',
+    title: '今日先把该盯的事盯住',
+    description: '把今天必须推进的任务、提醒和异常项先捞出来，少切视图，少丢重点。',
+  },
+  board: {
+    eyebrow: 'Flow overview',
+    title: '看板视角扫全局进度',
+    description: '按状态看流转是否顺畅，快速定位堵点、延期和未推进项。',
+  },
+  history: {
+    eyebrow: 'Audit trail',
+    title: '历史记录用于复盘，不是考古',
+    description: '带着条件查记录，定位上下文、责任和时间线，不再盲翻。',
+  },
+};
+
 function App() {
-  const [activeView, setActiveView] = useState<'today' | 'board' | 'history'>('today');
+  const [activeView, setActiveView] = useState<ViewMode>('today');
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [historyFilters, setHistoryFilters] = useState({ q: '', status: '', date: '' });
@@ -19,7 +50,9 @@ function App() {
   );
 
   useEffect(() => {
-    const pool = [today.data?.tasks, ...(board.data?.groups.map((group: { tasks: Task[] }) => group.tasks) || []), history.data?.items].flat().filter(Boolean) as Task[];
+    const pool = [today.data?.tasks, ...(board.data?.groups.map((group: { tasks: Task[] }) => group.tasks) || []), history.data?.items]
+      .flat()
+      .filter(Boolean) as Task[];
     if (!pool.length) return;
     if (!selectedTask) {
       setSelectedTask(pool[0]);
@@ -35,7 +68,8 @@ function App() {
     if (!selectedTask?.id) return;
     let cancelled = false;
 
-    api.getTask(selectedTask.id)
+    api
+      .getTask(selectedTask.id)
       .then((task) => {
         if (!cancelled) setSelectedTask(task);
       })
@@ -72,23 +106,49 @@ function App() {
     onAddReminder: (task: Task, payload: { remind_at: string; channel: string; note?: string }) => runTaskAction('remind', () => api.addReminder(task.id, payload)),
   };
 
+  const boardMetrics = useMemo(() => {
+    if (!board.data) return { total: 0, active: 0, blocked: 0 };
+    const total = board.data.groups.reduce((sum: number, group: { status: string; tasks: Task[] }) => sum + group.tasks.length, 0);
+    const active = board.data.groups.find((group: { status: string; tasks: Task[] }) => group.status === 'doing')?.tasks.length || 0;
+    const blocked = board.data.groups.find((group: { status: string; tasks: Task[] }) => group.status === 'deferred')?.tasks.length || 0;
+    return { total, active, blocked };
+  }, [board.data]);
+
   const currentContent = useMemo(() => {
     if (activeView === 'today') {
       if (today.loading) return <LoadingState />;
       if (today.error || !today.data) return <ErrorState message={today.error || '今日数据为空'} onRetry={today.reload} />;
       return (
-        <div className="content-grid">
-          <section>
-            <SectionHeader title="今日视图" description="按时间顺序处理今天要盯住的任务。" />
-            <SummaryCards items={[
-              { label: '任务总数', value: today.data.summary.total },
-              { label: '今日到期', value: today.data.summary.dueToday },
-              { label: '已逾期', value: today.data.summary.overdue },
-              { label: '已完成', value: today.data.summary.completed },
-            ]} />
-            <TaskList tasks={today.data.tasks} selectedTaskId={selectedTask?.id} onSelect={setSelectedTask} />
-          </section>
-          <TaskDetail {...detailProps} />
+        <div className="content-stack">
+          <ViewHero
+            eyebrow={viewMeta.today.eyebrow}
+            title={viewMeta.today.title}
+            description={viewMeta.today.description}
+            highlight={`今天共有 ${today.data.summary.total} 项任务，未完成 ${today.data.summary.open} 项。先清掉逾期，再推进今天到期。`}
+            metrics={[
+              { label: '未完成', value: String(today.data.summary.open), tone: 'brand' },
+              { label: '逾期', value: String(today.data.summary.overdue), tone: today.data.summary.overdue ? 'danger' : 'success' },
+              { label: '已完成', value: String(today.data.summary.completed), tone: 'success' },
+            ]}
+          />
+
+          <SummaryCards
+            items={[
+              { label: '任务总数', value: today.data.summary.total, tone: 'neutral', helper: '今天需要被看见的全部事项' },
+              { label: '今日到期', value: today.data.summary.dueToday, tone: 'brand', helper: '今天必须推进，不适合再拖' },
+              { label: '已逾期', value: today.data.summary.overdue, tone: 'danger', helper: '优先清理，别让锅继续发酵' },
+              { label: '已完成', value: today.data.summary.completed, tone: 'success', helper: '当天已经闭环的任务' },
+            ]}
+          />
+
+          <div className="content-grid">
+            <section className="view-column">
+              <Panel title="今日任务池" description="列表优先按今天视角呈现，先处理到期、逾期和正在推进的事项。">
+                <TaskList tasks={today.data.tasks} selectedTaskId={selectedTask?.id} onSelect={setSelectedTask} variant="today" />
+              </Panel>
+            </section>
+            <TaskDetail {...detailProps} />
+          </div>
         </div>
       );
     }
@@ -97,12 +157,26 @@ function App() {
       if (board.loading) return <LoadingState />;
       if (board.error || !board.data) return <ErrorState message={board.error || '看板数据为空'} onRetry={board.reload} />;
       return (
-        <div className="content-grid">
-          <section>
-            <SectionHeader title="看板视图" description="按状态分组，适合扫一眼整体进度。" />
-            <BoardColumns groups={board.data.groups} selectedTaskId={selectedTask?.id} onSelect={setSelectedTask} />
-          </section>
-          <TaskDetail {...detailProps} />
+        <div className="content-stack">
+          <ViewHero
+            eyebrow={viewMeta.board.eyebrow}
+            title={viewMeta.board.title}
+            description={viewMeta.board.description}
+            highlight={`当前共 ${boardMetrics.total} 项任务分布在各状态列。优先关注进行中和延期列是否堆积。`}
+            metrics={[
+              { label: '总任务', value: String(boardMetrics.total), tone: 'brand' },
+              { label: '进行中', value: String(boardMetrics.active), tone: 'default' },
+              { label: '延期', value: String(boardMetrics.blocked), tone: boardMetrics.blocked ? 'danger' : 'success' },
+            ]}
+          />
+          <div className="content-grid board-layout">
+            <section className="view-column">
+              <Panel title="状态看板" description="看整体流转，找堆积点，别靠直觉管理进度。">
+                <BoardColumns groups={board.data.groups} selectedTaskId={selectedTask?.id} onSelect={setSelectedTask} />
+              </Panel>
+            </section>
+            <TaskDetail {...detailProps} />
+          </div>
         </div>
       );
     }
@@ -110,20 +184,34 @@ function App() {
     if (history.loading) return <LoadingState />;
     if (history.error || !history.data) return <ErrorState message={history.error || '历史数据为空'} onRetry={history.reload} />;
     return (
-      <div className="content-grid">
-        <section>
-          <SectionHeader
-            title="历史视图"
-            description="查看过往任务与变更，方便复盘，也方便抓背锅证据。"
-            actions={<button onClick={() => setHistoryQuery(historyFilters)}>刷新筛选</button>}
-          />
-          <HistoryFilters value={historyFilters} onChange={setHistoryFilters} onSearch={() => setHistoryQuery(historyFilters)} />
-          <TaskList tasks={history.data.items} selectedTaskId={selectedTask?.id} onSelect={setSelectedTask} />
-        </section>
-        <TaskDetail {...detailProps} />
+      <div className="content-stack">
+        <ViewHero
+          eyebrow={viewMeta.history.eyebrow}
+          title={viewMeta.history.title}
+          description={viewMeta.history.description}
+          highlight={`当前命中 ${history.data.total} 条历史任务记录。先用关键词和状态缩窄范围，再看详情时间线。`}
+          metrics={[
+            { label: '命中记录', value: String(history.data.total), tone: 'brand' },
+            { label: '筛选状态', value: historyFilters.status || '全部', tone: 'default' },
+            { label: '日期', value: historyFilters.date || '不限', tone: 'default' },
+          ]}
+        />
+        <div className="content-grid">
+          <section className="view-column">
+            <Panel
+              title="历史检索"
+              description="带着条件查，少翻无效记录，复盘效率会高很多。"
+              actions={<button onClick={() => setHistoryQuery(historyFilters)}>刷新筛选</button>}
+            >
+              <HistoryFilters value={historyFilters} onChange={setHistoryFilters} onSearch={() => setHistoryQuery(historyFilters)} resultCount={history.data.total} />
+              <TaskList tasks={history.data.items} selectedTaskId={selectedTask?.id} onSelect={setSelectedTask} variant="history" />
+            </Panel>
+          </section>
+          <TaskDetail {...detailProps} />
+        </div>
       </div>
     );
-  }, [activeView, today, board, history, selectedTask, busyAction, historyFilters]);
+  }, [activeView, today, board, history, selectedTask, busyAction, historyFilters, boardMetrics]);
 
   return (
     <Layout activeView={activeView} onChangeView={setActiveView} apiBaseUrl={api.baseUrl}>

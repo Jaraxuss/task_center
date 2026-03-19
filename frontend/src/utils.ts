@@ -35,6 +35,14 @@ export function getTaskSubtitle(task: Task) {
   return parts.filter(Boolean).join(' · ') || '无项目 / 无截止时间';
 }
 
+export function getTaskStateSummary(task: Task) {
+  if (task.status === 'done' && task.completed_at) return `完成于 ${formatDateTime(task.completed_at)}`;
+  if (task.status === 'deferred' && task.deferred_to) return `延期到 ${formatDateTime(task.deferred_to)}`;
+  if (task.status === 'canceled' && task.canceled_at) return `取消于 ${formatDateTime(task.canceled_at)}`;
+  if (task.due_at) return `截止 ${formatDateTime(task.due_at)}`;
+  return '待安排';
+}
+
 export function summarizeEvents(task: Task) {
   return task.events?.slice(0, 5) ?? [];
 }
