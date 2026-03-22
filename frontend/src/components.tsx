@@ -13,7 +13,7 @@ import {
 
 interface LayoutProps {
   activeView: string;
-  onChangeView: (view: 'today' | 'board' | 'history') => void;
+  onChangeView: (view: 'today' | 'plan' | 'board' | 'history') => void;
   theme: 'light' | 'dark';
   onToggleTheme: () => void;
   sidebarCollapsed: boolean;
@@ -39,8 +39,9 @@ export interface BoardFilterCondition {
 
 const tabs = [
   { key: 'today', label: '今日', icon: '01' },
-  { key: 'board', label: '看板', icon: '02' },
-  { key: 'history', label: '历史', icon: '03' },
+  { key: 'plan', label: '计划', icon: '02' },
+  { key: 'board', label: '看板', icon: '03' },
+  { key: 'history', label: '历史', icon: '04' },
 ] as const;
 
 const timeFormatOptions: Array<{ value: TimeFormatMode; label: string; sample: string }> = [
@@ -343,33 +344,73 @@ function formatPlanGroupTitle(value?: string | null) {
   return new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit', weekday: 'short' }).format(new Date(`${value}T00:00:00`));
 }
 
+function getPlanTaskScheduleAt(task: Task) {
+  return task.deferred_to || task.due_at || null;
+}
+
 function formatPlanTaskTime(task: Task) {
-  const scheduleAt = task.deferred_to || task.due_at;
+  const scheduleAt = getPlanTaskScheduleAt(task);
   if (!scheduleAt) return '未安排';
   return new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(scheduleAt));
 }
 
+function formatPlanTaskMeta(task: Task) {
+  if (task.deferred_to) return '已重新安排';
+  if (task.due_at) return '按截止时间排序';
+  return '尚未设置具体时间';
+}
+
 export function PlannedTaskGroups({ groups, selectedTaskId, onSelect }: { groups: PlanGroup[]; selectedTaskId?: number; onSelect: (task: Task) => void }) {
-  if (!groups.length) return <EmptyState title="暂无计划" description="现在没有未开始的任务。" compact />;
+  const normalizedGroups = useMemo(
+    () =>
+      [...groups]
+        .map((group) => ({
+          ...group,
+          tasks: [...group.tasks].sort((a, b) => {
+            const aScheduleAt = getPlanTaskScheduleAt(a);
+            const bScheduleAt = getPlanTaskScheduleAt(b);
+            const aTime = aScheduleAt ? new Date(aScheduleAt).getTime() : Number.MAX_SAFE_INTEGER;
+            const bTime = bScheduleAt ? new Date(bScheduleAt).getTime() : Number.MAX_SAFE_INTEGER;
+            if (aTime !== bTime) return aTime - bTime;
+            return new Date(b.updated_at || b.created_at).getTime() - new Date(a.updated_at || a.created_at).getTime();
+          }),
+        }))
+        .sort((a, b) => {
+          const aTime = a.group_date ? new Date(`${a.group_date}T00:00:00`).getTime() : Number.MAX_SAFE_INTEGER;
+          const bTime = b.group_date ? new Date(`${b.group_date}T00:00:00`).getTime() : Number.MAX_SAFE_INTEGER;
+          if (aTime !== bTime) return aTime - bTime;
+          return a.title.localeCompare(b.title, 'zh-CN');
+        }),
+    [groups],
+  );
+
+  if (!normalizedGroups.length) return <EmptyState title="暂无计划" description="现在没有未开始的任务。" compact />;
 
   return (
     <div className="plan-groups-stack fade-in">
-      {groups.map((group) => (
+      {normalizedGroups.map((group) => (
         <section className="plan-group" key={group.key}>
           <div className="plan-group-header">
-            <strong>{group.group_date ? formatPlanGroupTitle(group.group_date) : group.title}</strong>
-            <span className="muted">{group.tasks.length} 项</span>
+            <div className="plan-group-heading">
+              <strong>{group.group_date ? formatPlanGroupTitle(group.group_date) : group.title}</strong>
+              <span className="muted">{group.group_date ? group.group_date : '未安排日期'}</span>
+            </div>
+            <span className="pill">{group.tasks.length} 项</span>
           </div>
-          <div className="plan-task-list">
+          <div className="plan-task-grid">
             {group.tasks.map((task) => (
-              <button key={task.id} className={`subcard plan-task-row ${selectedTaskId === task.id ? 'selected' : ''}`} onClick={() => onSelect(task)}>
-                <div className="plan-task-time">{formatPlanTaskTime(task)}</div>
-                <div className="plan-task-main">
-                  <div className="plan-task-topline">
-                    <strong>{task.title}</strong>
-                    <StatusBadge status={task.status} />
-                  </div>
-                  <span className="muted">{task.project || '未分组项目'}</span>
+              <button key={task.id} className={`subcard plan-task-card ${selectedTaskId === task.id ? 'selected' : ''}`} onClick={() => onSelect(task)}>
+                <div className="plan-task-card-header">
+                  <span className="plan-task-time-badge">{formatPlanTaskTime(task)}</span>
+                  <StatusBadge status={task.status} />
+                </div>
+                <div className="plan-task-card-body">
+                  <strong className="plan-task-title" title={task.title}>{task.title}</strong>
+                  <span className="plan-task-project" title={task.project || '未分组项目'}>{task.project || '未分组项目'}</span>
+                </div>
+                <div className="plan-task-card-footer muted">
+                  <span>{formatPlanTaskMeta(task)}</span>
+                  <span>#{task.id}</span>
                 </div>
               </button>
             ))}

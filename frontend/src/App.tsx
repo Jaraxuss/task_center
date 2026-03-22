@@ -18,7 +18,7 @@ import {
 import { DashboardBoard, DashboardToday, HistoryResponse, ProjectSummary, Task, TaskGroup } from './types';
 import { groupTasksByProject, sortTasksByRecency, TimeFormatMode } from './utils';
 
-type ViewMode = 'today' | 'board' | 'history';
+type ViewMode = 'today' | 'plan' | 'board' | 'history';
 type ThemeMode = 'light' | 'dark';
 type BoardGroupMode = 'status' | 'project';
 
@@ -40,6 +40,10 @@ const viewMeta: Record<ViewMode, { eyebrow: string; title: string }> = {
   today: {
     eyebrow: 'Today',
     title: '今日',
+  },
+  plan: {
+    eyebrow: 'Plan',
+    title: '计划',
   },
   board: {
     eyebrow: 'Board',
@@ -183,7 +187,7 @@ function App() {
   const [boardFeedback, setBoardFeedback] = useState<{ tone: 'success' | 'danger'; message: string } | null>(null);
   const themeTransitionTimers = useRef<number[]>([]);
 
-  const today = useAsyncData(() => api.getTodayDashboard(), [], activeView === 'today');
+  const today = useAsyncData(() => api.getTodayDashboard(), [], activeView === 'today' || activeView === 'plan');
   const board = useAsyncData(() => api.getBoardDashboard(), [], activeView === 'board');
   const projects = useAsyncData(() => api.getProjects(), [], activeView === 'board');
   const history = useAsyncData(
@@ -479,6 +483,12 @@ function App() {
     return `共 ${total} 项，未完成 ${open}，今日到期 ${dueToday}，逾期 ${overdue}，已完成 ${completed}`;
   }, [today.data]);
 
+  const planSummaryHighlight = useMemo(() => {
+    if (!today.data) return '';
+    const totalPlanned = today.data.planGroups.reduce((sum: number, group: DashboardToday['planGroups'][number]) => sum + group.tasks.length, 0);
+    return `按 ${today.data.planGroups.length} 天分组，当前共 ${totalPlanned} 项待安排`;
+  }, [today.data]);
+
   const currentContent = useMemo(() => {
     if (activeView === 'today') {
       if (today.loading && !today.data) return <LoadingState mode="list" />;
@@ -521,8 +531,32 @@ function App() {
                 onPageChange={setTodayPage}
               />
             </Panel>
+          </section>
+        </div>
+      );
+    }
 
-            <Panel title="计划">
+    if (activeView === 'plan') {
+      if (today.loading && !today.data) return <LoadingState mode="list" />;
+      if (today.error || !today.data) return <ErrorState message={today.error || '计划数据为空'} onRetry={today.reload} />;
+      const plannedTaskCount = today.data.planGroups.reduce((sum: number, group: DashboardToday['planGroups'][number]) => sum + group.tasks.length, 0);
+      return (
+        <div className="content-stack">
+          <ViewHero
+            eyebrow={viewMeta.plan.eyebrow}
+            title={viewMeta.plan.title}
+            description="把接下来几天的任务拆成更清爽的卡片视图，桌面端默认 3 列。"
+            highlight={planSummaryHighlight}
+            metrics={[
+              { label: '日期组', value: String(today.data.planGroups.length), tone: 'brand' },
+              { label: '计划任务', value: String(plannedTaskCount), tone: 'default' },
+              { label: '未完成', value: String(today.data.summary.open), tone: 'default' },
+              { label: '逾期', value: String(today.data.summary.overdue), tone: today.data.summary.overdue ? 'danger' : 'success' },
+            ]}
+          />
+
+          <section className="view-column">
+            <Panel title="按天查看" description="最近日期优先，每个日期下用统一宽度卡片排布。">
               <PlannedTaskGroups groups={today.data.planGroups} selectedTaskId={selectedTask?.id} onSelect={openTaskDetail} />
             </Panel>
           </section>
@@ -621,6 +655,7 @@ function App() {
     todayPage,
     todayPageSize,
     todaySummaryHighlight,
+    planSummaryHighlight,
     boardGroups,
     boardGroupMode,
     boardFilters,
