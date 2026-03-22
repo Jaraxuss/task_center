@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from './api';
-import { useAsyncData } from './hooks';
+import { useAsyncData, useLocalStorage } from './hooks';
 import {
   BoardColumns,
   ErrorState,
@@ -8,14 +8,14 @@ import {
   Layout,
   LoadingState,
   Panel,
-  SummaryCards,
-  TaskDetail,
+  TaskDetailModal,
   TaskList,
   ViewHero,
 } from './components';
 import { Task } from './types';
 
 type ViewMode = 'today' | 'board' | 'history';
+type ThemeMode = 'light' | 'dark';
 
 const viewMeta: Record<ViewMode, { eyebrow: string; title: string; description: string }> = {
   today: {
@@ -38,7 +38,13 @@ const viewMeta: Record<ViewMode, { eyebrow: string; title: string; description: 
 function App() {
   const [activeView, setActiveView] = useState<ViewMode>('today');
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [theme, setTheme] = useLocalStorage<ThemeMode>('task-center-theme', 'light');
+  const [todayPageSize, setTodayPageSize] = useLocalStorage<number>('task-center-today-page-size', 10);
+  const [todayPage, setTodayPage] = useState(1);
+  const [historyPageSize, setHistoryPageSize] = useLocalStorage<number>('task-center-history-page-size', 20);
+  const [historyPage, setHistoryPage] = useState(1);
   const [historyFilters, setHistoryFilters] = useState({ q: '', status: '', date: '' });
   const [historyQuery, setHistoryQuery] = useState(historyFilters);
 
@@ -48,6 +54,10 @@ function App() {
     () => api.getHistoryDashboard({ q: historyQuery.q || undefined, status: historyQuery.status || undefined, date: historyQuery.date || undefined }),
     [historyQuery],
   );
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+  }, [theme]);
 
   useEffect(() => {
     const pool = [today.data?.tasks, ...(board.data?.groups.map((group: { tasks: Task[] }) => group.tasks) || []), history.data?.items]
@@ -80,8 +90,21 @@ function App() {
     };
   }, [selectedTask?.id]);
 
+  useEffect(() => {
+    setTodayPage(1);
+  }, [todayPageSize, today.data?.tasks.length]);
+
+  useEffect(() => {
+    setHistoryPage(1);
+  }, [historyPageSize, history.data?.items.length, historyQuery]);
+
   const refreshAll = async () => {
     await Promise.all([today.reload(), board.reload(), history.reload()]);
+  };
+
+  const openTaskDetail = (task: Task) => {
+    setSelectedTask(task);
+    setIsDetailOpen(true);
   };
 
   const runTaskAction = async (label: string, action: () => Promise<Task>) => {
@@ -98,6 +121,8 @@ function App() {
 
   const detailProps = {
     task: selectedTask,
+    open: isDetailOpen,
+    onClose: () => setIsDetailOpen(false),
     busyAction,
     onComplete: (task: Task) => runTaskAction('complete', () => api.completeTask(task.id)),
     onSaveSchedule: (task: Task, payload: { due_at: string | null }) => runTaskAction('schedule', () => api.updateTask(task.id, payload)),
@@ -114,6 +139,12 @@ function App() {
     return { total, active, blocked };
   }, [board.data]);
 
+  const todaySummaryHighlight = useMemo(() => {
+    if (!today.data) return '';
+    const { total, open, overdue, completed, dueToday } = today.data.summary;
+    return `今天共 ${total} 项任务，未完成 ${open} 项，今日到期 ${dueToday} 项${overdue ? `，其中逾期 ${overdue} 项要先灭火` : '，当前没有逾期项'}；已完成 ${completed} 项。`;
+  }, [today.data]);
+
   const currentContent = useMemo(() => {
     if (activeView === 'today') {
       if (today.loading) return <LoadingState />;
@@ -124,31 +155,41 @@ function App() {
             eyebrow={viewMeta.today.eyebrow}
             title={viewMeta.today.title}
             description={viewMeta.today.description}
-            highlight={`今天共有 ${today.data.summary.total} 项任务，未完成 ${today.data.summary.open} 项。先清掉逾期，再推进今天到期。`}
+            highlight={todaySummaryHighlight}
             metrics={[
               { label: '未完成', value: String(today.data.summary.open), tone: 'brand' },
+              { label: '今日到期', value: String(today.data.summary.dueToday), tone: 'default' },
               { label: '逾期', value: String(today.data.summary.overdue), tone: today.data.summary.overdue ? 'danger' : 'success' },
               { label: '已完成', value: String(today.data.summary.completed), tone: 'success' },
             ]}
           />
 
-          <SummaryCards
-            items={[
-              { label: '任务总数', value: today.data.summary.total, tone: 'neutral', helper: '今天需要被看见的全部事项' },
-              { label: '今日到期', value: today.data.summary.dueToday, tone: 'brand', helper: '今天必须推进，不适合再拖' },
-              { label: '已逾期', value: today.data.summary.overdue, tone: 'danger', helper: '优先清理，别让锅继续发酵' },
-              { label: '已完成', value: today.data.summary.completed, tone: 'success', helper: '当天已经闭环的任务' },
-            ]}
-          />
-
-          <div className="content-grid">
-            <section className="view-column">
-              <Panel title="今日任务池" description="列表优先按今天视角呈现，先处理到期、逾期和正在推进的事项。">
-                <TaskList tasks={today.data.tasks} selectedTaskId={selectedTask?.id} onSelect={setSelectedTask} variant="today" />
-              </Panel>
-            </section>
-            <TaskDetail {...detailProps} />
-          </div>
+          <section className="view-column">
+            <Panel
+              title="今日任务池"
+              description="列表优先按今天视角呈现，先处理到期、逾期和正在推进的事项。"
+              actions={
+                <div className="toolbar-inline">
+                  <span className="label-caption">每页</span>
+                  <select value={todayPageSize} onChange={(e) => setTodayPageSize(Number(e.target.value))}>
+                    <option value={10}>10</option>
+                    <option value={20}>20</option>
+                    <option value={50}>50</option>
+                  </select>
+                </div>
+              }
+            >
+              <TaskList
+                tasks={today.data.tasks}
+                selectedTaskId={selectedTask?.id}
+                onSelect={openTaskDetail}
+                variant="today"
+                page={todayPage}
+                pageSize={todayPageSize}
+                onPageChange={setTodayPage}
+              />
+            </Panel>
+          </section>
         </div>
       );
     }
@@ -169,14 +210,11 @@ function App() {
               { label: '延期', value: String(boardMetrics.blocked), tone: boardMetrics.blocked ? 'danger' : 'success' },
             ]}
           />
-          <div className="content-grid board-layout">
-            <section className="view-column">
-              <Panel title="状态看板" description="看整体流转，找堆积点，别靠直觉管理进度。">
-                <BoardColumns groups={board.data.groups} selectedTaskId={selectedTask?.id} onSelect={setSelectedTask} />
-              </Panel>
-            </section>
-            <TaskDetail {...detailProps} />
-          </div>
+          <section className="view-column">
+            <Panel title="状态看板" description="看整体流转，找堆积点，别靠直觉管理进度。">
+              <BoardColumns groups={board.data.groups} selectedTaskId={selectedTask?.id} onSelect={openTaskDetail} />
+            </Panel>
+          </section>
         </div>
       );
     }
@@ -196,27 +234,69 @@ function App() {
             { label: '日期', value: historyFilters.date || '不限', tone: 'default' },
           ]}
         />
-        <div className="content-grid">
-          <section className="view-column">
-            <Panel
-              title="历史检索"
-              description="带着条件查，少翻无效记录，复盘效率会高很多。"
-              actions={<button onClick={() => setHistoryQuery(historyFilters)}>刷新筛选</button>}
-            >
-              <HistoryFilters value={historyFilters} onChange={setHistoryFilters} onSearch={() => setHistoryQuery(historyFilters)} resultCount={history.data.total} />
-              <TaskList tasks={history.data.items} selectedTaskId={selectedTask?.id} onSelect={setSelectedTask} variant="history" />
-            </Panel>
-          </section>
-          <TaskDetail {...detailProps} />
-        </div>
+        <section className="view-column">
+          <Panel
+            title="历史检索"
+            description="带着条件查，少翻无效记录，复盘效率会高很多。"
+            actions={
+              <div className="toolbar-inline toolbar-inline-split">
+                <div className="toolbar-inline">
+                  <span className="label-caption">每页</span>
+                  <select value={historyPageSize} onChange={(e) => setHistoryPageSize(Number(e.target.value))}>
+                    <option value={10}>10</option>
+                    <option value={20}>20</option>
+                    <option value={50}>50</option>
+                  </select>
+                </div>
+                <button onClick={() => setHistoryQuery(historyFilters)}>刷新筛选</button>
+              </div>
+            }
+          >
+            <HistoryFilters value={historyFilters} onChange={setHistoryFilters} onSearch={() => setHistoryQuery(historyFilters)} resultCount={history.data.total} />
+            <TaskList
+              tasks={history.data.items}
+              selectedTaskId={selectedTask?.id}
+              onSelect={openTaskDetail}
+              variant="history"
+              page={historyPage}
+              pageSize={historyPageSize}
+              onPageChange={setHistoryPage}
+            />
+          </Panel>
+        </section>
       </div>
     );
-  }, [activeView, today, board, history, selectedTask, busyAction, historyFilters, boardMetrics]);
+  }, [
+    activeView,
+    today,
+    board,
+    history,
+    selectedTask,
+    busyAction,
+    historyFilters,
+    historyPage,
+    historyPageSize,
+    historyQuery,
+    boardMetrics,
+    theme,
+    todayPage,
+    todayPageSize,
+    todaySummaryHighlight,
+  ]);
 
   return (
-    <Layout activeView={activeView} onChangeView={setActiveView} apiBaseUrl={api.baseUrl}>
-      {currentContent}
-    </Layout>
+    <>
+      <Layout
+        activeView={activeView}
+        onChangeView={setActiveView}
+        apiBaseUrl={api.baseUrl}
+        theme={theme}
+        onToggleTheme={() => setTheme(theme === 'light' ? 'dark' : 'light')}
+      >
+        {currentContent}
+      </Layout>
+      <TaskDetailModal {...detailProps} />
+    </>
   );
 }
 
