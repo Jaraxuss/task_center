@@ -3,6 +3,8 @@ import {
   DashboardToday,
   DeferTaskPayload,
   HistoryResponse,
+  ProjectRenameResponse,
+  ProjectSummary,
   ReminderPayload,
   Task,
   TaskEvent,
@@ -30,6 +32,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
+    const contentType = response.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      const payload = await response.json().catch(() => null);
+      const detail = typeof payload?.detail === 'string' ? payload.detail : '';
+      throw new Error(detail || `请求失败: ${response.status}`);
+    }
     const text = await response.text();
     throw new Error(text || `请求失败: ${response.status}`);
   }
@@ -160,6 +168,36 @@ export const api = {
           }))
         : [],
     } satisfies DashboardBoard;
+  },
+  getProjects: async () => {
+    const response = await request<any[]>('/api/projects');
+    return (
+      Array.isArray(response)
+        ? response.map((project) => ({
+            name: String(project.name || ''),
+            task_count: Number(project.task_count || 0),
+            open_task_count: Number(project.open_task_count || 0),
+            done_task_count: Number(project.done_task_count || 0),
+          }))
+        : []
+    ) satisfies ProjectSummary[];
+  },
+  renameProject: async (oldName: string, newName: string) => {
+    const response = await request<any>('/api/projects/rename', {
+      method: 'PATCH',
+      body: JSON.stringify({ old_name: oldName, new_name: newName }),
+    });
+    return {
+      old_name: String(response.old_name || oldName),
+      new_name: String(response.new_name || newName),
+      updated_task_count: Number(response.updated_task_count || 0),
+      project: {
+        name: String(response.project?.name || newName),
+        task_count: Number(response.project?.task_count || 0),
+        open_task_count: Number(response.project?.open_task_count || 0),
+        done_task_count: Number(response.project?.done_task_count || 0),
+      },
+    } satisfies ProjectRenameResponse;
   },
   getHistoryDashboard: async (filters?: TaskFilters) => {
     const response = await request<any>(`/api/dashboard/history${toSearchParams(filters)}`);

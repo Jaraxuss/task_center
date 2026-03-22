@@ -85,7 +85,8 @@ export function groupTasksByProject(tasks: Task[]) {
       key: `project:${title}`,
       title,
       tone: 'project' as const,
-      meta: `${items.length} 项`,
+      meta: title === '未分组项目' ? '未填写项目的任务' : `${items.length} 项`,
+      renamable: title !== '未分组项目',
       tasks: sortTasksByRecency(items),
     }))
     .sort((a, b) => b.tasks.length - a.tasks.length || a.title.localeCompare(b.title, 'zh-CN'));

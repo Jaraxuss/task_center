@@ -434,7 +434,7 @@ export function BoardColumns({
               onSelect={onSelect}
               selectedTaskId={selectedTaskId}
               visibleFields={visibleFields}
-              allowRename={groupMode === 'project'}
+              allowRename={groupMode === 'project' && group.renamable !== false}
               onRenameProject={onRenameProject}
               renamingProject={renamingProject}
               renameProjectSupported={renameProjectSupported}
@@ -505,10 +505,12 @@ function BoardColumn({
 }) {
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState(group.title);
+  const [renameError, setRenameError] = useState<string | null>(null);
 
   useEffect(() => {
     setTitleDraft(group.title);
     setIsEditingTitle(false);
+    setRenameError(null);
   }, [group.title]);
 
   const submitRename = async (e: FormEvent) => {
@@ -517,10 +519,16 @@ function BoardColumn({
     if (!nextName || nextName === group.title) {
       setIsEditingTitle(false);
       setTitleDraft(group.title);
+      setRenameError(null);
       return;
     }
-    await onRenameProject(group.title, nextName);
-    setIsEditingTitle(false);
+    setRenameError(null);
+    try {
+      await onRenameProject(group.title, nextName);
+      setIsEditingTitle(false);
+    } catch (error) {
+      setRenameError(error instanceof Error ? error.message : '项目重命名失败');
+    }
   };
 
   return (
@@ -532,9 +540,9 @@ function BoardColumn({
             <div className="board-column-title-row">
               {isEditingTitle ? (
                 <form className="inline-rename-form" onSubmit={submitRename}>
-                  <input value={titleDraft} onChange={(e) => setTitleDraft(e.target.value)} aria-label="项目名称" />
+                  <input value={titleDraft} onChange={(e) => { setTitleDraft(e.target.value); if (renameError) setRenameError(null); }} aria-label="项目名称" />
                   <button type="submit" disabled={renamingProject === group.title}>保存</button>
-                  <button type="button" onClick={() => { setIsEditingTitle(false); setTitleDraft(group.title); }}>取消</button>
+                  <button type="button" onClick={() => { setIsEditingTitle(false); setTitleDraft(group.title); setRenameError(null); }}>取消</button>
                 </form>
               ) : (
                 <>
@@ -548,8 +556,9 @@ function BoardColumn({
           ) : (
             <h4>{group.title}</h4>
           )}
-          {allowRename && !renameProjectSupported ? <p className="muted board-column-meta">当前用任务 project 字段做兼容批量改名。</p> : null}
-          {!allowRename && group.meta ? <p className="muted board-column-meta">{group.meta}</p> : null}
+          {group.meta ? <p className="muted board-column-meta">{group.meta}</p> : null}
+          {allowRename && !renameProjectSupported ? <p className="muted board-column-meta">当前项目改名接口不可用。</p> : null}
+          {renameError ? <p className="board-inline-feedback danger">{renameError}</p> : null}
         </div>
         <span className="pill">{group.tasks.length}</span>
       </div>

@@ -66,10 +66,25 @@ export interface TaskGroup {
   tasks: Task[];
   tone?: TaskStatus | 'project';
   meta?: string;
+  renamable?: boolean;
 }
 
 export interface DashboardBoard {
   groups: TaskGroup[];
+}
+
+export interface ProjectSummary {
+  name: string;
+  task_count: number;
+  open_task_count: number;
+  done_task_count: number;
+}
+
+export interface ProjectRenameResponse {
+  old_name: string;
+  new_name: string;
+  updated_task_count: number;
+  project: ProjectSummary;
 }
 
 export interface HistoryResponse {

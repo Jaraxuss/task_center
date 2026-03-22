@@ -14,7 +14,7 @@ import {
   TaskList,
   ViewHero,
 } from './components';
-import { DashboardBoard, DashboardToday, HistoryResponse, Task, TaskGroup, TaskStatus } from './types';
+import { DashboardBoard, DashboardToday, HistoryResponse, ProjectSummary, Task, TaskGroup, TaskStatus } from './types';
 import { groupTasksByProject, sortTasksByRecency, TimeFormatMode } from './utils';
 
 type ViewMode = 'today' | 'board' | 'history';
@@ -139,9 +139,11 @@ function App() {
   const [boardFilters, setBoardFilters] = useLocalStorage<BoardFilterCondition[]>('task-center-board-filters', []);
   const [boardVisibleFields, setBoardVisibleFields] = useLocalStorage<BoardVisibleField[]>('task-center-board-visible-fields', defaultBoardVisibleFields);
   const [renamingProject, setRenamingProject] = useState<string | null>(null);
+  const [boardFeedback, setBoardFeedback] = useState<{ tone: 'success' | 'danger'; message: string } | null>(null);
 
   const today = useAsyncData(() => api.getTodayDashboard(), [], activeView === 'today');
   const board = useAsyncData(() => api.getBoardDashboard(), [], activeView === 'board');
+  const projects = useAsyncData(() => api.getProjects(), [], activeView === 'board');
   const history = useAsyncData(
     () => api.getHistoryDashboard({ q: historyQuery.q || undefined, status: historyQuery.status || undefined, date: historyQuery.date || undefined }),
     [historyQuery],
@@ -198,6 +200,10 @@ function App() {
   useEffect(() => {
     setHistoryPage(1);
   }, [historyPageSize, history.data?.items.length, historyQuery]);
+
+  useEffect(() => {
+    if (activeView !== 'board') setBoardFeedback(null);
+  }, [activeView]);
 
   const refreshLoadedViews = async () => {
     await Promise.all([
@@ -268,15 +274,22 @@ function App() {
   };
 
   const renameProject = async (currentName: string, nextName: string) => {
-    if (!board.data) return;
-    const affectedTasks = board.data.groups
-      .flatMap((group: TaskGroup) => group.tasks)
-      .filter((task: Task) => (task.project?.trim() || '未分组项目') === currentName);
-    if (!affectedTasks.length) return;
     setRenamingProject(currentName);
+    setBoardFeedback(null);
     try {
-      await Promise.all(affectedTasks.map((task: Task) => api.updateTask(task.id, { project: nextName })));
-      await refreshLoadedViews();
+      const result = await api.renameProject(currentName, nextName);
+      await Promise.all([
+        refreshLoadedViews(),
+        projects.loaded ? projects.reload() : Promise.resolve(projects.data),
+      ]);
+      setBoardFeedback({
+        tone: 'success',
+        message: `项目“${result.old_name}”已重命名为“${result.new_name}”，同步更新 ${result.updated_task_count} 条任务。`,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '项目重命名失败';
+      setBoardFeedback({ tone: 'danger', message: `项目重命名失败：${message}` });
+      throw error;
     } finally {
       setRenamingProject(null);
     }
@@ -296,11 +309,24 @@ function App() {
   };
 
   const boardStatusGroups: TaskGroup[] = board.data?.groups || [];
+  const projectSummaryMap = useMemo(
+    () => new Map((projects.data || []).map((project: ProjectSummary) => [project.name, project])),
+    [projects.data],
+  );
   const filteredBoardTasks = useMemo(
     () => boardStatusGroups.flatMap((group: TaskGroup) => group.tasks).filter((task) => boardFilters.every((condition) => matchesBoardCondition(task, condition))),
     [boardStatusGroups, boardFilters],
   );
-  const boardProjectGroups = useMemo<TaskGroup[]>(() => groupTasksByProject(filteredBoardTasks), [filteredBoardTasks]);
+  const boardProjectGroups = useMemo<TaskGroup[]>(() => {
+    return groupTasksByProject(filteredBoardTasks).map((group) => {
+      const summary = projectSummaryMap.get(group.title);
+      if (!summary) return group;
+      return {
+        ...group,
+        meta: `共 ${summary.task_count} · 未完成 ${summary.open_task_count} · 已完成 ${summary.done_task_count}`,
+      } satisfies TaskGroup;
+    });
+  }, [filteredBoardTasks, projectSummaryMap]);
   const filteredStatusGroups = useMemo<TaskGroup[]>(() => {
     const map = new Map<string, Task[]>();
     boardStatusGroups.forEach((group) => map.set(group.key, []));
@@ -314,13 +340,14 @@ function App() {
   const projectOptions = useMemo(
     () =>
       Array.from(
-        new Set(
-          boardStatusGroups.flatMap((group: TaskGroup) =>
+        new Set([
+          ...(projects.data || []).map((project: ProjectSummary) => project.name).filter(Boolean),
+          ...boardStatusGroups.flatMap((group: TaskGroup) =>
             group.tasks.map((task: Task) => task.project?.trim()).filter(Boolean) as string[],
           ),
-        ),
+        ]),
       ).sort((a, b) => a.localeCompare(b, 'zh-CN')),
-    [boardStatusGroups],
+    [boardStatusGroups, projects.data],
   );
 
   const boardMetrics = useMemo(() => {
@@ -401,21 +428,28 @@ function App() {
           />
           <section className="view-column">
             <Panel title="看板">
-              <BoardColumns
-                groups={boardGroups}
-                selectedTaskId={selectedTask?.id}
-                onSelect={openTaskDetail}
-                groupMode={boardGroupMode}
-                onGroupModeChange={setBoardGroupMode}
-                filters={boardFilters}
-                onFiltersChange={setBoardFilters}
-                visibleFields={boardVisibleFields.length ? boardVisibleFields : defaultBoardVisibleFields}
-                onVisibleFieldsChange={setBoardVisibleFields}
-                projectOptions={projectOptions}
-                onRenameProject={renameProject}
-                renamingProject={renamingProject}
-                renameProjectSupported={false}
-              />
+              <div className="board-panel-stack">
+                {projects.error ? <div className="inline-banner danger">项目列表加载失败：{projects.error}</div> : null}
+                {boardFeedback ? <div className={`inline-banner ${boardFeedback.tone}`}>{boardFeedback.message}</div> : null}
+                <BoardColumns
+                  groups={boardGroups}
+                  selectedTaskId={selectedTask?.id}
+                  onSelect={openTaskDetail}
+                  groupMode={boardGroupMode}
+                  onGroupModeChange={(mode) => {
+                    setBoardGroupMode(mode);
+                    setBoardFeedback(null);
+                  }}
+                  filters={boardFilters}
+                  onFiltersChange={setBoardFilters}
+                  visibleFields={boardVisibleFields.length ? boardVisibleFields : defaultBoardVisibleFields}
+                  onVisibleFieldsChange={setBoardVisibleFields}
+                  projectOptions={projectOptions}
+                  onRenameProject={renameProject}
+                  renamingProject={renamingProject}
+                  renameProjectSupported={!projects.error}
+                />
+              </div>
             </Panel>
           </section>
         </div>
