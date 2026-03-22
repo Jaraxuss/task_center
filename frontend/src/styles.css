@@ -105,14 +105,22 @@ select:focus-visible {
 }
 
 .app-shell {
+  --sidebar-width: 300px;
   display: grid;
-  grid-template-columns: 300px minmax(0, 1fr);
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
   min-height: 100vh;
+  transition: grid-template-columns 220ms ease;
+}
+
+.app-shell.sidebar-collapsed {
+  --sidebar-width: 104px;
 }
 
 .sidebar {
   position: sticky;
   top: 0;
+  width: var(--sidebar-width);
+  min-width: 0;
   height: 100vh;
   overflow: auto;
   padding: var(--space-7);
@@ -122,6 +130,12 @@ select:focus-visible {
   display: flex;
   flex-direction: column;
   gap: var(--space-6);
+  transition: width 220ms ease, padding 220ms ease, gap 220ms ease;
+}
+
+.sidebar.collapsed {
+  padding: 20px 14px;
+  gap: 12px;
 }
 
 .brand-card {
@@ -141,6 +155,15 @@ select:focus-visible {
 .sidebar.collapsed .brand-block {
   padding: 14px 10px;
   text-align: center;
+}
+
+.sidebar.collapsed .brand-kicker {
+  display: none;
+}
+
+.sidebar.collapsed .brand-copy h1 {
+  margin-top: 0;
+  font-size: 18px;
 }
 
 .brand-copy-block {
@@ -182,6 +205,10 @@ select:focus-visible {
   gap: 10px;
 }
 
+.sidebar.collapsed .nav-list {
+  gap: 8px;
+}
+
 .nav-item,
 .board-task,
 .task-row {
@@ -197,6 +224,11 @@ select:focus-visible {
   border-radius: var(--radius-md);
   padding: 14px 16px;
   transition: 160ms ease;
+}
+
+.sidebar.collapsed .nav-item {
+  justify-content: center;
+  padding: 12px 10px;
 }
 
 .nav-item:hover {
@@ -255,6 +287,24 @@ select:focus-visible {
   gap: 10px;
 }
 
+.sidebar-footer-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sidebar-footer-action {
+  min-height: 44px;
+}
+
+.sidebar.collapsed .sidebar-footer {
+  padding: 10px;
+}
+
+.sidebar.collapsed .sidebar-footer-action {
+  padding-inline: 0;
+}
+
 .sidebar-divider {
   height: 1px;
   background: var(--color-border);
@@ -283,6 +333,7 @@ select:focus-visible {
 }
 
 .main-content {
+  min-width: 0;
   padding: var(--space-8);
 }
 
@@ -1118,13 +1169,13 @@ select:focus-visible {
   opacity: 1;
 }
 
-.theme-transition-overlay.phase-leaving {
-  animation: themeBackdropOut 500ms ease forwards;
+.theme-transition-overlay.phase-fading {
+  animation: themeBackdropOut 400ms ease forwards;
 }
 
 .theme-transition-scene {
   position: relative;
-  width: min(300px, 68vw);
+  width: min(240px, 56vw);
   aspect-ratio: 1;
 }
 
@@ -1133,16 +1184,18 @@ select:focus-visible {
   inset: 0;
   display: grid;
   place-items: center;
-  font-size: clamp(88px, 18vw, 144px);
+  font-size: clamp(88px, 18vw, 132px);
   font-weight: 700;
-  border-radius: 50%;
-  transform-origin: center;
   filter: drop-shadow(0 18px 36px rgba(0, 0, 0, 0.18));
-  animation: themeOrbSpinDecel 2000ms cubic-bezier(.12,.82,.22,1) forwards;
+  animation: themeOrbAppear 220ms ease-out forwards;
 }
 
-.theme-transition-overlay.phase-leaving .theme-transition-orb {
-  animation: themeOrbFadeOut 500ms ease forwards;
+.theme-transition-overlay.phase-after-switch .theme-transition-orb {
+  transform: scale(1.02);
+}
+
+.theme-transition-overlay.phase-fading .theme-transition-orb {
+  animation: themeOrbFadeOut 400ms ease forwards;
 }
 
 .theme-transition-sun {
@@ -1262,33 +1315,25 @@ button:disabled { opacity: 0.6; cursor: not-allowed; }
   to { opacity: 0; }
 }
 
-@keyframes themeOrbSpinDecel {
-  0% {
+@keyframes themeOrbAppear {
+  from {
     opacity: 0;
-    transform: scale(0.72) rotate(0deg);
+    transform: scale(0.9);
   }
-  12% {
+  to {
     opacity: 1;
-    transform: scale(1.04) rotate(240deg);
-  }
-  52% {
-    opacity: 1;
-    transform: scale(1) rotate(980deg);
-  }
-  100% {
-    opacity: 1;
-    transform: scale(1) rotate(1260deg);
+    transform: scale(1);
   }
 }
 
 @keyframes themeOrbFadeOut {
-  0% {
+  from {
     opacity: 1;
-    transform: scale(1) rotate(1260deg);
+    transform: scale(1);
   }
-  100% {
+  to {
     opacity: 0;
-    transform: scale(0.9) rotate(1260deg);
+    transform: scale(0.94);
   }
 }
 

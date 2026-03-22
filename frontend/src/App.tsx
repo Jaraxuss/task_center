@@ -23,16 +23,17 @@ type BoardGroupMode = 'status' | 'project';
 
 type ThemeTransitionState = 'idle' | 'animating';
 type BoardViewConfigMap = Record<BoardGroupMode, { filters: BoardFilterCondition[]; visibleFields: BoardVisibleField[] }>;
-type ThemeTransitionPhase = 'spinning' | 'holding' | 'leaving';
+type ThemeTransitionPhase = 'before-switch' | 'after-switch' | 'fading';
 
 const BOARD_CONTENT_MAX_MIN = 20;
 const BOARD_CONTENT_MAX_DEFAULT = 50;
 const BOARD_CONTENT_MAX_LIMIT = 200;
-const THEME_SPIN_DURATION_MS = 2000;
-const THEME_HOLD_DURATION_MS = 500;
-const THEME_LEAVE_DURATION_MS = 500;
-const THEME_SWITCH_DELAY_MS = THEME_SPIN_DURATION_MS + THEME_HOLD_DURATION_MS;
-const THEME_TRANSITION_TOTAL_MS = THEME_SWITCH_DELAY_MS + THEME_LEAVE_DURATION_MS;
+const THEME_PRE_SWITCH_DURATION_MS = 1500;
+const THEME_POST_SWITCH_DURATION_MS = 1000;
+const THEME_FADE_DURATION_MS = 400;
+const THEME_SWITCH_DELAY_MS = THEME_PRE_SWITCH_DURATION_MS;
+const THEME_FADE_DELAY_MS = THEME_SWITCH_DELAY_MS + THEME_POST_SWITCH_DURATION_MS;
+const THEME_TRANSITION_TOTAL_MS = THEME_FADE_DELAY_MS + THEME_FADE_DURATION_MS;
 
 const viewMeta: Record<ViewMode, { eyebrow: string; title: string }> = {
   today: {
@@ -175,7 +176,7 @@ function App() {
   const [boardViewConfigs, setBoardViewConfigs] = useLocalStorage<BoardViewConfigMap>('task-center-board-view-configs', normalizeBoardViewConfigs());
   const [boardContentMaxLength, setBoardContentMaxLength] = useLocalStorage<number>('task-center-board-content-max-length', BOARD_CONTENT_MAX_DEFAULT);
   const [themeTransitionState, setThemeTransitionState] = useState<ThemeTransitionState>('idle');
-  const [themeTransitionPhase, setThemeTransitionPhase] = useState<ThemeTransitionPhase>('spinning');
+  const [themeTransitionPhase, setThemeTransitionPhase] = useState<ThemeTransitionPhase>('before-switch');
   const [themeTransitionIcon, setThemeTransitionIcon] = useState<'sun' | 'moon' | null>(null);
   const [renamingProject, setRenamingProject] = useState<string | null>(null);
   const [boardFeedback, setBoardFeedback] = useState<{ tone: 'success' | 'danger'; message: string } | null>(null);
@@ -364,28 +365,28 @@ function App() {
     themeTransitionTimers.current.forEach((timer) => window.clearTimeout(timer));
     themeTransitionTimers.current = [];
 
-    setThemeTransitionIcon(nextTheme === 'dark' ? 'sun' : 'moon');
-    setThemeTransitionPhase('spinning');
+    setThemeTransitionIcon(nextTheme === 'dark' ? 'moon' : 'sun');
+    setThemeTransitionPhase('before-switch');
     setThemeTransitionState('animating');
 
     themeTransitionTimers.current.push(
       window.setTimeout(() => {
-        setThemeTransitionPhase('holding');
-      }, THEME_SPIN_DURATION_MS),
+        setTheme(nextTheme);
+        setThemeTransitionPhase('after-switch');
+      }, THEME_SWITCH_DELAY_MS),
     );
 
     themeTransitionTimers.current.push(
       window.setTimeout(() => {
-        setThemeTransitionPhase('leaving');
-        setTheme(nextTheme);
-      }, THEME_SWITCH_DELAY_MS),
+        setThemeTransitionPhase('fading');
+      }, THEME_FADE_DELAY_MS),
     );
 
     themeTransitionTimers.current.push(
       window.setTimeout(() => {
         setThemeTransitionState('idle');
         setThemeTransitionIcon(null);
-        setThemeTransitionPhase('spinning');
+        setThemeTransitionPhase('before-switch');
         themeTransitionTimers.current = [];
       }, THEME_TRANSITION_TOTAL_MS),
     );

@@ -128,14 +128,6 @@ export function Layout({
               <h1>{sidebarCollapsed ? 'TC' : '任务中心'}</h1>
             </div>
           </div>
-          <button
-            className="sidebar-collapse-button"
-            onClick={onToggleSidebar}
-            aria-label={sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}
-            title={sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}
-          >
-            <span aria-hidden="true">{sidebarCollapsed ? '»' : '«'}</span>
-          </button>
         </div>
 
         <nav className="nav-list" aria-label="主视图切换">
@@ -158,10 +150,21 @@ export function Layout({
         </nav>
 
         <div className="sidebar-footer card subtle-card">
-          <button className="settings-trigger" onClick={() => setSettingsOpen(true)} aria-label="打开设置" title={sidebarCollapsed ? '设置' : undefined}>
-            <span aria-hidden="true">⚙</span>
-            {!sidebarCollapsed ? <span>设置</span> : null}
-          </button>
+          <div className="sidebar-footer-actions">
+            <button
+              className="settings-trigger sidebar-footer-action"
+              onClick={onToggleSidebar}
+              aria-label={sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}
+              title={sidebarCollapsed ? '展开侧边栏' : '收起'}
+            >
+              <span aria-hidden="true">{sidebarCollapsed ? '→' : '←'}</span>
+              {!sidebarCollapsed ? <span>收起</span> : null}
+            </button>
+            <button className="settings-trigger sidebar-footer-action" onClick={() => setSettingsOpen(true)} aria-label="打开设置" title={sidebarCollapsed ? '设置' : undefined}>
+              <span aria-hidden="true">⚙</span>
+              {!sidebarCollapsed ? <span>设置</span> : null}
+            </button>
+          </div>
           {!sidebarCollapsed ? (
             <>
               <div className="sidebar-divider" />
@@ -183,7 +186,7 @@ export function Layout({
               </div>
               <button className="ghost-toggle theme-toggle-button" onClick={onToggleTheme} disabled={themeTransitionState === 'animating'}>
                 <span className="theme-toggle-icon" aria-hidden="true">{theme === 'dark' ? '☀︎' : '☾'}</span>
-                <span>{themeTransitionState === 'animating' ? '切换中…' : theme === 'dark' ? '切到浅色' : '切到深色'}</span>
+                <span>{themeTransitionState === 'animating' ? '切换中…' : theme === 'dark' ? '切换浅色' : '切换深色'}</span>
               </button>
             </div>
 
