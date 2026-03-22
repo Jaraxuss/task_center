@@ -17,6 +17,8 @@ interface LayoutProps {
   apiBaseUrl: string;
   theme: 'light' | 'dark';
   onToggleTheme: () => void;
+  sidebarCollapsed: boolean;
+  onToggleSidebar: () => void;
   timeFormat: TimeFormatMode;
   onTimeFormatChange: (value: TimeFormatMode) => void;
   boardContentMaxLength: number;
@@ -105,6 +107,8 @@ export function Layout({
   apiBaseUrl,
   theme,
   onToggleTheme,
+  sidebarCollapsed,
+  onToggleSidebar,
   timeFormat,
   onTimeFormatChange,
   boardContentMaxLength,
@@ -115,34 +119,56 @@ export function Layout({
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
-        <div className="brand-card brand-block">
-          <div className="brand-copy brand-copy-block">
-            <span className="brand-kicker">Task Center</span>
-            <h1>任务中心</h1>
+    <div className={`app-shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
+      <aside className={`sidebar ${sidebarCollapsed ? 'collapsed' : ''}`}>
+        <div className="sidebar-topbar">
+          <div className="brand-card brand-block">
+            <div className="brand-copy brand-copy-block">
+              <span className="brand-kicker">Task Center</span>
+              <h1>{sidebarCollapsed ? 'TC' : '任务中心'}</h1>
+            </div>
           </div>
+          <button
+            className="sidebar-collapse-button"
+            onClick={onToggleSidebar}
+            aria-label={sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}
+            title={sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}
+          >
+            <span aria-hidden="true">{sidebarCollapsed ? '»' : '«'}</span>
+          </button>
         </div>
 
         <nav className="nav-list" aria-label="主视图切换">
           {tabs.map((tab) => (
-            <button key={tab.key} className={`nav-item ${activeView === tab.key ? 'active' : ''}`} onClick={() => onChangeView(tab.key)}>
+            <button
+              key={tab.key}
+              className={`nav-item ${activeView === tab.key ? 'active' : ''}`}
+              onClick={() => onChangeView(tab.key)}
+              aria-label={tab.label}
+              title={sidebarCollapsed ? tab.label : undefined}
+            >
               <span className="nav-icon">{tab.icon}</span>
-              <span className="nav-copy">
-                <span className="nav-label">{tab.label}</span>
-              </span>
+              {!sidebarCollapsed ? (
+                <span className="nav-copy">
+                  <span className="nav-label">{tab.label}</span>
+                </span>
+              ) : null}
             </button>
           ))}
         </nav>
 
         <div className="sidebar-footer card subtle-card">
-          <button className="settings-trigger" onClick={() => setSettingsOpen(true)}>
+          <button className="settings-trigger" onClick={() => setSettingsOpen(true)} aria-label="打开设置" title={sidebarCollapsed ? '设置' : undefined}>
             <span aria-hidden="true">⚙</span>
-            <span>设置</span>
+            {!sidebarCollapsed ? <span>设置</span> : null}
           </button>
-          <div className="sidebar-divider" />
-          <span className="label-caption">API Endpoint</span>
-          <code>{apiBaseUrl}</code>
+          {!sidebarCollapsed ? (
+            <>
+              <div className="sidebar-divider" />
+              <span className="label-caption">API Endpoint</span>
+              <code>{apiBaseUrl}</code>
+            </>
+          ) : null}
         </div>
       </aside>
       <main className="main-content">{children}</main>
@@ -384,8 +410,8 @@ export function BoardColumns({
 
   return (
     <div className="board-shell">
-      <div className="board-toolbar board-toolbar-compact">
-        <div className="toolbar-inline toolbar-wrap">
+      <div className="board-toolbar board-toolbar-compact board-toolbar-split">
+        <div className="toolbar-inline toolbar-wrap board-toolbar-left">
           <div className="segmented-control" role="tablist" aria-label="看板分组方式">
             <button className={groupMode === 'status' ? 'active' : ''} onClick={() => onGroupModeChange('status')}>
               按状态
@@ -394,15 +420,11 @@ export function BoardColumns({
               按项目
             </button>
           </div>
+        </div>
+        <div className="toolbar-inline toolbar-wrap board-toolbar-right">
           <button onClick={() => setBuilderOpen((current) => !current)}>{builderOpen ? '收起筛选' : '筛选'}</button>
           <button onClick={() => setVisibleFieldsOpen((current) => !current)}>{visibleFieldsOpen ? '收起显示字段' : '显示字段'}</button>
         </div>
-        {!visibleFieldsOpen ? (
-          <div className="toolbar-inline toolbar-wrap field-toggle-summary muted">
-            <span className="label-caption">显示字段</span>
-            <span>{visibleFields.map((field) => visibleFieldOptions.find((option) => option.key === field)?.label || field).join(' · ')}</span>
-          </div>
-        ) : null}
       </div>
 
       {builderOpen ? (
@@ -486,6 +508,7 @@ export function BoardColumns({
               onSelect={onSelect}
               selectedTaskId={selectedTaskId}
               visibleFields={visibleFields}
+              groupMode={groupMode}
               allowRename={groupMode === 'project' && group.renamable !== false}
               onRenameProject={onRenameProject}
               renamingProject={renamingProject}
@@ -542,6 +565,7 @@ function BoardColumn({
   onSelect,
   selectedTaskId,
   visibleFields,
+  groupMode,
   allowRename,
   onRenameProject,
   renamingProject,
@@ -552,6 +576,7 @@ function BoardColumn({
   onSelect: (task: Task) => void;
   selectedTaskId?: number;
   visibleFields: BoardVisibleField[];
+  groupMode: 'status' | 'project';
   allowRename?: boolean;
   onRenameProject: (currentName: string, nextName: string) => Promise<void>;
   renamingProject?: string | null;
@@ -586,11 +611,22 @@ function BoardColumn({
     }
   };
 
+  const isProjectGroup = groupMode === 'project';
+  const now = Date.now();
+  const projectStats = {
+    total: group.tasks.length,
+    completed: group.tasks.filter((task) => task.status === 'done').length,
+    open: group.tasks.filter((task) => task.status !== 'done' && task.status !== 'canceled').length,
+    overdue: group.tasks.filter((task) => task.status !== 'done' && task.status !== 'canceled' && task.due_at && new Date(task.due_at).getTime() < now).length,
+  };
+  const showStatusRow = visibleFields.includes('status') && !isProjectGroup;
+  const showProjectField = visibleFields.includes('project') && !isProjectGroup;
+
   return (
     <section className="card board-column">
       <div className="board-column-header">
         <div className="board-column-header-main">
-          {group.tone === 'project' ? <span className="group-badge">项目</span> : <StatusBadge status={group.tone || 'todo'} />}
+          {!isProjectGroup ? <StatusBadge status={group.tone && group.tone !== 'project' ? group.tone : 'todo'} /> : null}
           {allowRename ? (
             <div className="board-column-title-row">
               {isEditingTitle ? (
@@ -616,17 +652,26 @@ function BoardColumn({
           ) : (
             <h4>{group.title}</h4>
           )}
-          {group.meta ? <p className="muted board-column-meta">{group.meta}</p> : null}
+          {group.meta && !isProjectGroup ? <p className="muted board-column-meta">{group.meta}</p> : null}
           {allowRename && !renameProjectSupported ? <p className="muted board-column-meta">当前项目改名接口不可用。</p> : null}
           {renameError ? <p className="board-inline-feedback danger">{renameError}</p> : null}
         </div>
-        <span className="pill">{group.tasks.length}</span>
+        {isProjectGroup ? (
+          <div className="board-column-stats" aria-label={`${group.title}统计`}>
+            <span className="board-column-stat tone-total" title="总计">{projectStats.total}</span>
+            <span className="board-column-stat tone-done" title="已完成">{projectStats.completed}</span>
+            <span className="board-column-stat tone-open" title="未完成">{projectStats.open}</span>
+            <span className="board-column-stat tone-overdue" title="已逾期">{projectStats.overdue}</span>
+          </div>
+        ) : (
+          <span className="pill">{group.tasks.length}</span>
+        )}
       </div>
       <div className="board-column-body">
         {group.tasks.length ? (
           group.tasks.map((task) => (
             <button key={task.id} className={`board-task ${selectedTaskId === task.id ? 'selected' : ''}`} onClick={() => onSelect(task)}>
-              {visibleFields.includes('status') ? (
+              {showStatusRow ? (
                 <div className="board-task-status-row">
                   <StatusBadge status={task.status} />
                   <span className="task-row-meta">#{task.id}</span>
@@ -635,13 +680,13 @@ function BoardColumn({
               {visibleFields.includes('title') ? (
                 <div className="board-task-topline">
                   <strong>{task.title}</strong>
-                  {!visibleFields.includes('status') ? <span className="task-row-meta">#{task.id}</span> : null}
+                  {!showStatusRow ? <span className="task-row-meta">#{task.id}</span> : null}
                 </div>
               ) : null}
               {visibleFields.includes('description') ? <span className="muted board-task-description">{truncateText(task.description || '暂无描述', boardContentMaxLength)}</span> : null}
               <div className="board-task-footer">
                 {visibleFields.includes('due_at') ? <MetaChip label="日期" value={task.due_at ? formatDateTime(task.due_at) : '未设置'} /> : null}
-                {visibleFields.includes('project') ? <MetaChip label="项目" value={task.project || '未分组'} /> : null}
+                {showProjectField ? <MetaChip label="项目" value={task.project || '未分组'} /> : null}
               </div>
             </button>
           ))

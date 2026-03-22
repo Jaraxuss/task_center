@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from './api';
 import { useAsyncData, useLocalStorage } from './hooks';
 import {
@@ -14,7 +14,7 @@ import {
   TaskList,
   ViewHero,
 } from './components';
-import { DashboardBoard, DashboardToday, HistoryResponse, ProjectSummary, Task, TaskGroup, TaskStatus } from './types';
+import { DashboardBoard, DashboardToday, HistoryResponse, ProjectSummary, Task, TaskGroup } from './types';
 import { groupTasksByProject, sortTasksByRecency, TimeFormatMode } from './utils';
 
 type ViewMode = 'today' | 'board' | 'history';
@@ -22,12 +22,17 @@ type ThemeMode = 'light' | 'dark';
 type BoardGroupMode = 'status' | 'project';
 
 type ThemeTransitionState = 'idle' | 'animating';
+type BoardViewConfigMap = Record<BoardGroupMode, { filters: BoardFilterCondition[]; visibleFields: BoardVisibleField[] }>;
+type ThemeTransitionPhase = 'spinning' | 'holding' | 'leaving';
 
 const BOARD_CONTENT_MAX_MIN = 20;
 const BOARD_CONTENT_MAX_DEFAULT = 50;
 const BOARD_CONTENT_MAX_LIMIT = 200;
-const THEME_TRANSITION_TOTAL_MS = 960;
-const THEME_SWITCH_DELAY_MS = 360;
+const THEME_SPIN_DURATION_MS = 2000;
+const THEME_HOLD_DURATION_MS = 500;
+const THEME_LEAVE_DURATION_MS = 500;
+const THEME_SWITCH_DELAY_MS = THEME_SPIN_DURATION_MS + THEME_HOLD_DURATION_MS;
+const THEME_TRANSITION_TOTAL_MS = THEME_SWITCH_DELAY_MS + THEME_LEAVE_DURATION_MS;
 
 const viewMeta: Record<ViewMode, { eyebrow: string; title: string }> = {
   today: {
@@ -49,6 +54,23 @@ const defaultBoardVisibleFields: BoardVisibleField[] = ['title', 'description', 
 function clampBoardContentMaxLength(value: number) {
   if (!Number.isFinite(value)) return BOARD_CONTENT_MAX_DEFAULT;
   return Math.min(BOARD_CONTENT_MAX_LIMIT, Math.max(BOARD_CONTENT_MAX_MIN, Math.round(value)));
+}
+
+function normalizeVisibleFields(fields?: BoardVisibleField[]) {
+  const next = (fields || []).filter((field, index, list) => defaultBoardVisibleFields.includes(field) && list.indexOf(field) === index);
+  return next.length ? next : defaultBoardVisibleFields;
+}
+
+function normalizeBoardViewConfigs(value?: Partial<BoardViewConfigMap> | null): BoardViewConfigMap {
+  const make = (mode: BoardGroupMode) => ({
+    filters: Array.isArray(value?.[mode]?.filters) ? value?.[mode]?.filters || [] : [],
+    visibleFields: normalizeVisibleFields(value?.[mode]?.visibleFields),
+  });
+
+  return {
+    status: make('status'),
+    project: make('project'),
+  };
 }
 
 function computeTodaySummary(tasks: Task[], date = new Date().toISOString().slice(0, 10)): DashboardToday['summary'] {
@@ -148,13 +170,16 @@ function App() {
   const [historyPage, setHistoryPage] = useState(1);
   const [historyFilters, setHistoryFilters] = useState({ q: '', status: '', date: '' });
   const [historyQuery, setHistoryQuery] = useState(historyFilters);
-  const [boardGroupMode, setBoardGroupMode] = useState<BoardGroupMode>('status');
-  const [boardFilters, setBoardFilters] = useLocalStorage<BoardFilterCondition[]>('task-center-board-filters', []);
-  const [boardVisibleFields, setBoardVisibleFields] = useLocalStorage<BoardVisibleField[]>('task-center-board-visible-fields', defaultBoardVisibleFields);
+  const [sidebarCollapsed, setSidebarCollapsed] = useLocalStorage<boolean>('task-center-sidebar-collapsed', false);
+  const [boardGroupMode, setBoardGroupMode] = useLocalStorage<BoardGroupMode>('task-center-board-group-mode', 'status');
+  const [boardViewConfigs, setBoardViewConfigs] = useLocalStorage<BoardViewConfigMap>('task-center-board-view-configs', normalizeBoardViewConfigs());
   const [boardContentMaxLength, setBoardContentMaxLength] = useLocalStorage<number>('task-center-board-content-max-length', BOARD_CONTENT_MAX_DEFAULT);
   const [themeTransitionState, setThemeTransitionState] = useState<ThemeTransitionState>('idle');
+  const [themeTransitionPhase, setThemeTransitionPhase] = useState<ThemeTransitionPhase>('spinning');
+  const [themeTransitionIcon, setThemeTransitionIcon] = useState<'sun' | 'moon' | null>(null);
   const [renamingProject, setRenamingProject] = useState<string | null>(null);
   const [boardFeedback, setBoardFeedback] = useState<{ tone: 'success' | 'danger'; message: string } | null>(null);
+  const themeTransitionTimers = useRef<number[]>([]);
 
   const today = useAsyncData(() => api.getTodayDashboard(), [], activeView === 'today');
   const board = useAsyncData(() => api.getBoardDashboard(), [], activeView === 'board');
@@ -178,6 +203,18 @@ function App() {
       setBoardContentMaxLength(clampBoardContentMaxLength(boardContentMaxLength));
     }
   }, [boardContentMaxLength, setBoardContentMaxLength]);
+
+  useEffect(() => {
+    const normalized = normalizeBoardViewConfigs(boardViewConfigs);
+    if (JSON.stringify(normalized) !== JSON.stringify(boardViewConfigs)) {
+      setBoardViewConfigs(normalized);
+    }
+  }, [boardViewConfigs, setBoardViewConfigs]);
+
+  useEffect(() => () => {
+    themeTransitionTimers.current.forEach((timer) => window.clearTimeout(timer));
+    themeTransitionTimers.current = [];
+  }, []);
 
   useEffect(() => {
     if (!selectedTask?.id || !isDetailOpen) return;
@@ -322,13 +359,36 @@ function App() {
 
   const handleToggleTheme = () => {
     if (themeTransitionState === 'animating') return;
+
+    const nextTheme = theme === 'light' ? 'dark' : 'light';
+    themeTransitionTimers.current.forEach((timer) => window.clearTimeout(timer));
+    themeTransitionTimers.current = [];
+
+    setThemeTransitionIcon(nextTheme === 'dark' ? 'sun' : 'moon');
+    setThemeTransitionPhase('spinning');
     setThemeTransitionState('animating');
-    window.setTimeout(() => {
-      setTheme((current) => (current === 'light' ? 'dark' : 'light'));
-    }, THEME_SWITCH_DELAY_MS);
-    window.setTimeout(() => {
-      setThemeTransitionState('idle');
-    }, THEME_TRANSITION_TOTAL_MS);
+
+    themeTransitionTimers.current.push(
+      window.setTimeout(() => {
+        setThemeTransitionPhase('holding');
+      }, THEME_SPIN_DURATION_MS),
+    );
+
+    themeTransitionTimers.current.push(
+      window.setTimeout(() => {
+        setThemeTransitionPhase('leaving');
+        setTheme(nextTheme);
+      }, THEME_SWITCH_DELAY_MS),
+    );
+
+    themeTransitionTimers.current.push(
+      window.setTimeout(() => {
+        setThemeTransitionState('idle');
+        setThemeTransitionIcon(null);
+        setThemeTransitionPhase('spinning');
+        themeTransitionTimers.current = [];
+      }, THEME_TRANSITION_TOTAL_MS),
+    );
   };
 
   const detailProps = {
@@ -342,6 +402,31 @@ function App() {
     onDefer: (task: Task, payload: { deferred_to: string; note?: string }) => runTaskAction('defer', () => api.deferTask(task.id, { deferred_to: payload.deferred_to, reason: payload.note })),
     onCancel: (task: Task, note?: string) => runTaskAction('cancel', () => api.cancelTask(task.id, note)),
     onAddReminder: (task: Task, payload: { remind_at: string; channel: string; note?: string }) => runTaskAction('remind', () => api.addReminder(task.id, payload)),
+  };
+
+  const activeBoardViewConfig = normalizeBoardViewConfigs(boardViewConfigs)[boardGroupMode];
+  const boardFilters = activeBoardViewConfig.filters;
+  const boardVisibleFields = activeBoardViewConfig.visibleFields;
+
+  const updateBoardViewConfig = (mode: BoardGroupMode, patch: Partial<BoardViewConfigMap[BoardGroupMode]>) => {
+    setBoardViewConfigs((current) => {
+      const normalized = normalizeBoardViewConfigs(current);
+      return {
+        ...normalized,
+        [mode]: {
+          filters: patch.filters ?? normalized[mode].filters,
+          visibleFields: patch.visibleFields ? normalizeVisibleFields(patch.visibleFields) : normalized[mode].visibleFields,
+        },
+      };
+    });
+  };
+
+  const handleBoardFiltersChange = (filters: BoardFilterCondition[]) => {
+    updateBoardViewConfig(boardGroupMode, { filters });
+  };
+
+  const handleBoardVisibleFieldsChange = (visibleFields: BoardVisibleField[]) => {
+    updateBoardViewConfig(boardGroupMode, { visibleFields });
   };
 
   const boardStatusGroups: TaskGroup[] = board.data?.groups || [];
@@ -359,7 +444,7 @@ function App() {
       if (!summary) return group;
       return {
         ...group,
-        meta: `共 ${summary.task_count} · 未完成 ${summary.open_task_count} · 已完成 ${summary.done_task_count}`,
+        meta: undefined,
       } satisfies TaskGroup;
     });
   }, [filteredBoardTasks, projectSummaryMap]);
@@ -385,14 +470,6 @@ function App() {
       ).sort((a, b) => a.localeCompare(b, 'zh-CN')),
     [boardStatusGroups, projects.data],
   );
-
-  const boardMetrics = useMemo(() => {
-    if (!board.data) return { total: 0, active: 0, blocked: 0 };
-    const total = filteredBoardTasks.length;
-    const active = filteredBoardTasks.filter((task) => task.status === ('doing' satisfies TaskStatus)).length;
-    const blocked = filteredBoardTasks.filter((task) => task.status === ('deferred' satisfies TaskStatus)).length;
-    return { total, active, blocked };
-  }, [board.data, filteredBoardTasks]);
 
   const todaySummaryHighlight = useMemo(() => {
     if (!today.data) return '';
@@ -451,43 +528,31 @@ function App() {
       if (board.loading && !board.data) return <LoadingState mode="board" />;
       if (board.error || !board.data) return <ErrorState message={board.error || '看板数据为空'} onRetry={board.reload} />;
       return (
-        <div className="content-stack">
-          <ViewHero
-            eyebrow={viewMeta.board.eyebrow}
-            title={viewMeta.board.title}
-            highlight={`当前筛选后 ${boardMetrics.total} 项任务`}
-            metrics={[
-              { label: '总任务', value: String(boardMetrics.total), tone: 'brand' },
-              { label: '进行中', value: String(boardMetrics.active), tone: 'default' },
-              { label: '延期', value: String(boardMetrics.blocked), tone: boardMetrics.blocked ? 'danger' : 'success' },
-            ]}
-          />
-          <section className="view-column">
-            <Panel title="看板">
-              <div className="board-panel-stack">
-                {projects.error ? <div className="inline-banner danger">项目列表加载失败：{projects.error}</div> : null}
-                {boardFeedback ? <div className={`inline-banner ${boardFeedback.tone}`}>{boardFeedback.message}</div> : null}
-                <BoardColumns
-                  groups={boardGroups}
-                  selectedTaskId={selectedTask?.id}
-                  onSelect={openTaskDetail}
-                  groupMode={boardGroupMode}
-                  onGroupModeChange={(mode) => {
-                    setBoardGroupMode(mode);
-                    setBoardFeedback(null);
-                  }}
-                  filters={boardFilters}
-                  onFiltersChange={setBoardFilters}
-                  visibleFields={boardVisibleFields.length ? boardVisibleFields : defaultBoardVisibleFields}
-                  onVisibleFieldsChange={setBoardVisibleFields}
-                  projectOptions={projectOptions}
-                  onRenameProject={renameProject}
-                  renamingProject={renamingProject}
-                  renameProjectSupported={!projects.error}
-                  boardContentMaxLength={boardContentMaxLength}
-                />
-              </div>
-            </Panel>
+        <div className="content-stack board-content-stack">
+          <section className="view-column board-view-column">
+            <div className="board-panel-stack board-panel-stack-tight">
+              {projects.error ? <div className="inline-banner danger">项目列表加载失败：{projects.error}</div> : null}
+              {boardFeedback ? <div className={`inline-banner ${boardFeedback.tone}`}>{boardFeedback.message}</div> : null}
+              <BoardColumns
+                groups={boardGroups}
+                selectedTaskId={selectedTask?.id}
+                onSelect={openTaskDetail}
+                groupMode={boardGroupMode}
+                onGroupModeChange={(mode) => {
+                  setBoardGroupMode(mode);
+                  setBoardFeedback(null);
+                }}
+                filters={boardFilters}
+                onFiltersChange={handleBoardFiltersChange}
+                visibleFields={boardVisibleFields}
+                onVisibleFieldsChange={handleBoardVisibleFieldsChange}
+                projectOptions={projectOptions}
+                onRenameProject={renameProject}
+                renamingProject={renamingProject}
+                renameProjectSupported={!projects.error}
+                boardContentMaxLength={boardContentMaxLength}
+              />
+            </div>
           </section>
         </div>
       );
@@ -547,7 +612,6 @@ function App() {
     historyFilters,
     historyPage,
     historyPageSize,
-    boardMetrics,
     todayPage,
     todayPageSize,
     todaySummaryHighlight,
@@ -570,6 +634,8 @@ function App() {
         apiBaseUrl={api.baseUrl}
         theme={theme}
         onToggleTheme={handleToggleTheme}
+        sidebarCollapsed={sidebarCollapsed}
+        onToggleSidebar={() => setSidebarCollapsed((current) => !current)}
         timeFormat={timeFormat}
         onTimeFormatChange={setTimeFormat}
         boardContentMaxLength={boardContentMaxLength}
@@ -579,10 +645,11 @@ function App() {
         {currentContent}
       </Layout>
       {themeTransitionState === 'animating' ? (
-        <div className="theme-transition-overlay" aria-hidden="true">
+        <div className={`theme-transition-overlay phase-${themeTransitionPhase}`} aria-hidden="true">
           <div className="theme-transition-scene">
-            <div className="theme-transition-orb theme-transition-sun">☀</div>
-            <div className="theme-transition-orb theme-transition-moon">☾</div>
+            <div className={`theme-transition-orb ${themeTransitionIcon === 'sun' ? 'theme-transition-sun' : 'theme-transition-moon'}`}>
+              {themeTransitionIcon === 'sun' ? '☀' : '☾'}
+            </div>
           </div>
         </div>
       ) : null}
