@@ -48,6 +48,13 @@ export interface Task {
   events?: TaskEvent[];
 }
 
+export interface PlanGroup {
+  key: string;
+  title: string;
+  group_date?: string | null;
+  tasks: Task[];
+}
+
 export interface DashboardToday {
   date: string;
   summary: {
@@ -58,6 +65,7 @@ export interface DashboardToday {
     open: number;
   };
   tasks: Task[];
+  planGroups: PlanGroup[];
 }
 
 export interface TaskGroup {

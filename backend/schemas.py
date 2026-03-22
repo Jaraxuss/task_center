@@ -145,12 +145,20 @@ class ProjectRenameResponse(BaseModel):
     project: ProjectSummary
 
 
+class PlanGroup(BaseModel):
+    key: str
+    title: str
+    group_date: date | None = None
+    tasks: list[TaskRead]
+
+
 class TodaySummary(BaseModel):
     date: date
     tasks: list[TaskRead]
     total: int
     open_count: int
     completed_count: int
+    plan_groups: list[PlanGroup] = Field(default_factory=list)
 
 
 class BoardSummary(BaseModel):

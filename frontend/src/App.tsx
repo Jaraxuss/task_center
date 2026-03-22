@@ -10,6 +10,7 @@ import {
   Layout,
   LoadingState,
   Panel,
+  PlannedTaskGroups,
   TaskDetailModal,
   TaskList,
   ViewHero,
@@ -520,6 +521,10 @@ function App() {
                 onPageChange={setTodayPage}
               />
             </Panel>
+
+            <Panel title="计划">
+              <PlannedTaskGroups groups={today.data.planGroups} selectedTaskId={selectedTask?.id} onSelect={openTaskDetail} />
+            </Panel>
           </section>
         </div>
       );
@@ -632,7 +637,6 @@ function App() {
       <Layout
         activeView={activeView}
         onChangeView={setActiveView}
-        apiBaseUrl={api.baseUrl}
         theme={theme}
         onToggleTheme={handleToggleTheme}
         sidebarCollapsed={sidebarCollapsed}

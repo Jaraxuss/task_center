@@ -1,5 +1,5 @@
 import { FormEvent, ReactNode, useEffect, useMemo, useState } from 'react';
-import { Task, TaskEvent, TaskGroup, TaskStatus } from './types';
+import { PlanGroup, Task, TaskEvent, TaskGroup, TaskStatus } from './types';
 import {
   formatDateTime,
   formatDateTimeInput,
@@ -14,7 +14,6 @@ import {
 interface LayoutProps {
   activeView: string;
   onChangeView: (view: 'today' | 'board' | 'history') => void;
-  apiBaseUrl: string;
   theme: 'light' | 'dark';
   onToggleTheme: () => void;
   sidebarCollapsed: boolean;
@@ -104,7 +103,6 @@ const BOARD_CONTENT_MAX_LIMIT = 200;
 export function Layout({
   activeView,
   onChangeView,
-  apiBaseUrl,
   theme,
   onToggleTheme,
   sidebarCollapsed,
@@ -165,13 +163,6 @@ export function Layout({
               {!sidebarCollapsed ? <span>设置</span> : null}
             </button>
           </div>
-          {!sidebarCollapsed ? (
-            <>
-              <div className="sidebar-divider" />
-              <span className="label-caption">API Endpoint</span>
-              <code>{apiBaseUrl}</code>
-            </>
-          ) : null}
         </div>
       </aside>
       <main className="main-content">{children}</main>
@@ -343,6 +334,48 @@ export function TaskList({
         })}
       </div>
       {totalPages > 1 ? <Pagination page={safePage} totalPages={totalPages} onPageChange={onPageChange} /> : null}
+    </div>
+  );
+}
+
+function formatPlanGroupTitle(value?: string | null) {
+  if (!value) return '未安排';
+  return new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit', weekday: 'short' }).format(new Date(`${value}T00:00:00`));
+}
+
+function formatPlanTaskTime(task: Task) {
+  const scheduleAt = task.deferred_to || task.due_at;
+  if (!scheduleAt) return '未安排';
+  return new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(scheduleAt));
+}
+
+export function PlannedTaskGroups({ groups, selectedTaskId, onSelect }: { groups: PlanGroup[]; selectedTaskId?: number; onSelect: (task: Task) => void }) {
+  if (!groups.length) return <EmptyState title="暂无计划" description="现在没有未开始的任务。" compact />;
+
+  return (
+    <div className="plan-groups-stack fade-in">
+      {groups.map((group) => (
+        <section className="plan-group" key={group.key}>
+          <div className="plan-group-header">
+            <strong>{group.group_date ? formatPlanGroupTitle(group.group_date) : group.title}</strong>
+            <span className="muted">{group.tasks.length} 项</span>
+          </div>
+          <div className="plan-task-list">
+            {group.tasks.map((task) => (
+              <button key={task.id} className={`subcard plan-task-row ${selectedTaskId === task.id ? 'selected' : ''}`} onClick={() => onSelect(task)}>
+                <div className="plan-task-time">{formatPlanTaskTime(task)}</div>
+                <div className="plan-task-main">
+                  <div className="plan-task-topline">
+                    <strong>{task.title}</strong>
+                    <StatusBadge status={task.status} />
+                  </div>
+                  <span className="muted">{task.project || '未分组项目'}</span>
+                </div>
+              </button>
+            ))}
+          </div>
+        </section>
+      ))}
     </div>
   );
 }

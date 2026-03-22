@@ -19,6 +19,7 @@ from schemas import (
     HealthResponse,
     HistorySummary,
     NightlyReviewPlaceholder,
+    PlanGroup,
     ProjectRenameRequest,
     ProjectRenameResponse,
     ProjectSummary,
@@ -127,6 +128,49 @@ def day_range(target: date) -> tuple[datetime, datetime]:
     return start, end
 
 
+def task_schedule_at(task: Task) -> datetime | None:
+    return task.deferred_to or task.due_at
+
+
+def build_plan_groups(db: Session) -> list[PlanGroup]:
+    not_started_statuses = [TaskStatus.TODO.value, TaskStatus.DEFERRED.value]
+    schedule_at = func.coalesce(Task.deferred_to, Task.due_at)
+    tasks = list(
+        db.scalars(
+            select(Task)
+            .where(Task.status.in_(not_started_statuses))
+            .options(selectinload(Task.reminders), selectinload(Task.events))
+            .order_by(schedule_at.is_(None), schedule_at.asc(), Task.created_at.asc())
+        ).unique()
+    )
+
+    grouped: dict[date | None, list[Task]] = {}
+    for task in tasks:
+        schedule_value = task_schedule_at(task)
+        grouped.setdefault(schedule_value.date() if schedule_value else None, []).append(task)
+
+    sorted_dates = sorted(group_date for group_date in grouped.keys() if group_date is not None)
+    if None in grouped:
+        sorted_dates.append(None)
+
+    plan_groups: list[PlanGroup] = []
+    for group_date in sorted_dates:
+        group_tasks = sorted(
+            grouped[group_date],
+            key=lambda task: (task_schedule_at(task) is None, task_schedule_at(task) or datetime.max, task.created_at),
+        )
+        plan_groups.append(
+            PlanGroup(
+                key=group_date.isoformat() if group_date else "unscheduled",
+                title=group_date.isoformat() if group_date else "未安排",
+                group_date=group_date,
+                tasks=[serialize_task(task) for task in group_tasks],
+            )
+        )
+
+    return plan_groups
+
+
 def build_today_summary(db: Session, target: date | None = None) -> TodaySummary:
     target = target or date.today()
     start, end = day_range(target)
@@ -150,6 +194,7 @@ def build_today_summary(db: Session, target: date | None = None) -> TodaySummary
         total=len(items),
         open_count=sum(1 for item in items if item.status in open_statuses),
         completed_count=sum(1 for item in items if item.status == TaskStatus.DONE.value),
+        plan_groups=build_plan_groups(db),
     )
 
 

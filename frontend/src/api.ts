@@ -153,6 +153,14 @@ export const api = {
         open: Number(response.open_count || 0),
       },
       tasks,
+      planGroups: Array.isArray(response.plan_groups)
+        ? response.plan_groups.map((group: any) => ({
+            key: String(group.key || group.group_date || group.title || 'plan-group'),
+            title: String(group.title || group.group_date || '未安排'),
+            group_date: group.group_date ?? null,
+            tasks: Array.isArray(group.tasks) ? group.tasks.map(normalizeTask) : [],
+          }))
+        : [],
     } satisfies DashboardToday;
   },
   getBoardDashboard: async () => {
