@@ -12,10 +12,12 @@ import {
   TaskList,
   ViewHero,
 } from './components';
-import { Task } from './types';
+import { DashboardBoard, DashboardToday, HistoryResponse, Task, TaskGroup, TaskStatus } from './types';
+import { groupTasksByProject, sortTasksByRecency, TimeFormatMode } from './utils';
 
 type ViewMode = 'today' | 'board' | 'history';
 type ThemeMode = 'light' | 'dark';
+type BoardGroupMode = 'status' | 'project';
 
 const viewMeta: Record<ViewMode, { eyebrow: string; title: string; description: string }> = {
   today: {
@@ -35,24 +37,50 @@ const viewMeta: Record<ViewMode, { eyebrow: string; title: string; description: 
   },
 };
 
+function computeTodaySummary(tasks: Task[], date = new Date().toISOString().slice(0, 10)): DashboardToday['summary'] {
+  const now = Date.now();
+  const completed = tasks.filter((task) => task.status === 'done').length;
+  const overdue = tasks.filter((task) => task.status !== 'done' && task.status !== 'canceled' && task.due_at && new Date(task.due_at).getTime() < now).length;
+  const open = tasks.filter((task) => task.status !== 'done' && task.status !== 'canceled').length;
+  const dueToday = tasks.filter((task) => task.due_at?.slice(0, 10) === date).length;
+
+  return {
+    total: tasks.length,
+    dueToday,
+    overdue,
+    completed,
+    open,
+  };
+}
+
+function upsertTask(list: Task[], updatedTask: Task) {
+  const exists = list.some((task) => task.id === updatedTask.id);
+  const next = exists ? list.map((task) => (task.id === updatedTask.id ? updatedTask : task)) : [updatedTask, ...list];
+  return sortTasksByRecency(next);
+}
+
 function App() {
   const [activeView, setActiveView] = useState<ViewMode>('today');
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
+  const [isDetailLoading, setIsDetailLoading] = useState(false);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [theme, setTheme] = useLocalStorage<ThemeMode>('task-center-theme', 'light');
+  const [timeFormat, setTimeFormat] = useLocalStorage<TimeFormatMode>('task-center-time-format', 'cn-short');
   const [todayPageSize, setTodayPageSize] = useLocalStorage<number>('task-center-today-page-size', 10);
   const [todayPage, setTodayPage] = useState(1);
   const [historyPageSize, setHistoryPageSize] = useLocalStorage<number>('task-center-history-page-size', 20);
   const [historyPage, setHistoryPage] = useState(1);
   const [historyFilters, setHistoryFilters] = useState({ q: '', status: '', date: '' });
   const [historyQuery, setHistoryQuery] = useState(historyFilters);
+  const [boardGroupMode, setBoardGroupMode] = useState<BoardGroupMode>('status');
 
-  const today = useAsyncData(() => api.getTodayDashboard(), []);
-  const board = useAsyncData(() => api.getBoardDashboard(), []);
+  const today = useAsyncData(() => api.getTodayDashboard(), [], activeView === 'today');
+  const board = useAsyncData(() => api.getBoardDashboard(), [], activeView === 'board');
   const history = useAsyncData(
     () => api.getHistoryDashboard({ q: historyQuery.q || undefined, status: historyQuery.status || undefined, date: historyQuery.date || undefined }),
     [historyQuery],
+    activeView === 'history',
   );
 
   useEffect(() => {
@@ -60,7 +88,11 @@ function App() {
   }, [theme]);
 
   useEffect(() => {
-    const pool = [today.data?.tasks, ...(board.data?.groups.map((group: { tasks: Task[] }) => group.tasks) || []), history.data?.items]
+    document.documentElement.dataset.timeFormat = timeFormat;
+  }, [timeFormat]);
+
+  useEffect(() => {
+    const pool = [today.data?.tasks, ...(board.data?.groups.map((group: TaskGroup) => group.tasks) || []), history.data?.items]
       .flat()
       .filter(Boolean) as Task[];
     if (!pool.length) return;
@@ -75,20 +107,24 @@ function App() {
   }, [today.data, board.data, history.data, selectedTask]);
 
   useEffect(() => {
-    if (!selectedTask?.id) return;
+    if (!selectedTask?.id || !isDetailOpen) return;
     let cancelled = false;
+    setIsDetailLoading(true);
 
     api
       .getTask(selectedTask.id)
       .then((task) => {
         if (!cancelled) setSelectedTask(task);
       })
-      .catch(() => undefined);
+      .catch(() => undefined)
+      .finally(() => {
+        if (!cancelled) setIsDetailLoading(false);
+      });
 
     return () => {
       cancelled = true;
     };
-  }, [selectedTask?.id]);
+  }, [selectedTask?.id, isDetailOpen]);
 
   useEffect(() => {
     setTodayPage(1);
@@ -98,8 +134,54 @@ function App() {
     setHistoryPage(1);
   }, [historyPageSize, history.data?.items.length, historyQuery]);
 
-  const refreshAll = async () => {
-    await Promise.all([today.reload(), board.reload(), history.reload()]);
+  const refreshLoadedViews = async () => {
+    await Promise.all([
+      today.loaded ? today.reload() : Promise.resolve(null),
+      board.loaded ? board.reload() : Promise.resolve(null),
+      history.loaded ? history.reload() : Promise.resolve(null),
+    ]);
+  };
+
+  const patchLoadedData = (updatedTask: Task) => {
+    today.setData((current) => {
+      if (!current) return current;
+      const tasks = upsertTask(current.tasks, updatedTask);
+      return {
+        ...current,
+        tasks,
+        summary: computeTodaySummary(tasks, current.date),
+      } satisfies DashboardToday;
+    });
+
+    board.setData((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        groups: current.groups.map((group: TaskGroup) => {
+          const withoutTask = group.tasks.filter((task: Task) => task.id !== updatedTask.id);
+          if (group.key === updatedTask.status) {
+            return {
+              ...group,
+              tasks: sortTasksByRecency([...withoutTask, updatedTask]),
+            };
+          }
+          return {
+            ...group,
+            tasks: withoutTask,
+          };
+        }),
+      } satisfies DashboardBoard;
+    });
+
+    history.setData((current) => {
+      if (!current) return current;
+      const items = upsertTask(current.items, updatedTask);
+      return {
+        ...current,
+        items,
+        total: Math.max(current.total, items.length),
+      } satisfies HistoryResponse;
+    });
   };
 
   const openTaskDetail = (task: Task) => {
@@ -113,7 +195,8 @@ function App() {
     try {
       const updated = await action();
       setSelectedTask(updated);
-      await refreshAll();
+      patchLoadedData(updated);
+      await refreshLoadedViews();
     } finally {
       setBusyAction(null);
     }
@@ -124,6 +207,7 @@ function App() {
     open: isDetailOpen,
     onClose: () => setIsDetailOpen(false),
     busyAction,
+    isLoadingDetails: isDetailLoading,
     onComplete: (task: Task) => runTaskAction('complete', () => api.completeTask(task.id)),
     onSaveSchedule: (task: Task, payload: { due_at: string | null }) => runTaskAction('schedule', () => api.updateTask(task.id, payload)),
     onDefer: (task: Task, payload: { deferred_to: string; note?: string }) => runTaskAction('defer', () => api.deferTask(task.id, { deferred_to: payload.deferred_to, reason: payload.note })),
@@ -131,11 +215,15 @@ function App() {
     onAddReminder: (task: Task, payload: { remind_at: string; channel: string; note?: string }) => runTaskAction('remind', () => api.addReminder(task.id, payload)),
   };
 
+  const boardStatusGroups: TaskGroup[] = board.data?.groups || [];
+  const boardProjectGroups = useMemo<TaskGroup[]>(() => groupTasksByProject(boardStatusGroups.flatMap((group: TaskGroup) => group.tasks)), [boardStatusGroups]);
+  const boardGroups = boardGroupMode === 'project' ? boardProjectGroups : boardStatusGroups;
+
   const boardMetrics = useMemo(() => {
     if (!board.data) return { total: 0, active: 0, blocked: 0 };
-    const total = board.data.groups.reduce((sum: number, group: { status: string; tasks: Task[] }) => sum + group.tasks.length, 0);
-    const active = board.data.groups.find((group: { status: string; tasks: Task[] }) => group.status === 'doing')?.tasks.length || 0;
-    const blocked = board.data.groups.find((group: { status: string; tasks: Task[] }) => group.status === 'deferred')?.tasks.length || 0;
+    const total = board.data.groups.reduce((sum: number, group: TaskGroup) => sum + group.tasks.length, 0);
+    const active = board.data.groups.find((group: TaskGroup) => group.key === ('doing' satisfies TaskStatus))?.tasks.length || 0;
+    const blocked = board.data.groups.find((group: TaskGroup) => group.key === ('deferred' satisfies TaskStatus))?.tasks.length || 0;
     return { total, active, blocked };
   }, [board.data]);
 
@@ -147,7 +235,7 @@ function App() {
 
   const currentContent = useMemo(() => {
     if (activeView === 'today') {
-      if (today.loading) return <LoadingState />;
+      if (today.loading && !today.data) return <LoadingState mode="list" />;
       if (today.error || !today.data) return <ErrorState message={today.error || '今日数据为空'} onRetry={today.reload} />;
       return (
         <div className="content-stack">
@@ -195,7 +283,7 @@ function App() {
     }
 
     if (activeView === 'board') {
-      if (board.loading) return <LoadingState />;
+      if (board.loading && !board.data) return <LoadingState mode="board" />;
       if (board.error || !board.data) return <ErrorState message={board.error || '看板数据为空'} onRetry={board.reload} />;
       return (
         <div className="content-stack">
@@ -212,14 +300,20 @@ function App() {
           />
           <section className="view-column">
             <Panel title="状态看板" description="看整体流转，找堆积点，别靠直觉管理进度。">
-              <BoardColumns groups={board.data.groups} selectedTaskId={selectedTask?.id} onSelect={openTaskDetail} />
+              <BoardColumns
+                groups={boardGroups}
+                selectedTaskId={selectedTask?.id}
+                onSelect={openTaskDetail}
+                groupMode={boardGroupMode}
+                onGroupModeChange={setBoardGroupMode}
+              />
             </Panel>
           </section>
         </div>
       );
     }
 
-    if (history.loading) return <LoadingState />;
+    if (history.loading && !history.data) return <LoadingState mode="list" />;
     if (history.error || !history.data) return <ErrorState message={history.error || '历史数据为空'} onRetry={history.reload} />;
     return (
       <div className="content-stack">
@@ -272,16 +366,15 @@ function App() {
     board,
     history,
     selectedTask,
-    busyAction,
     historyFilters,
     historyPage,
     historyPageSize,
-    historyQuery,
     boardMetrics,
-    theme,
     todayPage,
     todayPageSize,
     todaySummaryHighlight,
+    boardGroups,
+    boardGroupMode,
   ]);
 
   return (
@@ -292,6 +385,8 @@ function App() {
         apiBaseUrl={api.baseUrl}
         theme={theme}
         onToggleTheme={() => setTheme(theme === 'light' ? 'dark' : 'light')}
+        timeFormat={timeFormat}
+        onTimeFormatChange={setTimeFormat}
       >
         {currentContent}
       </Layout>

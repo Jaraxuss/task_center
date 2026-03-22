@@ -152,7 +152,9 @@ export const api = {
     return {
       groups: Array.isArray(response.groups)
         ? response.groups.map((group: any) => ({
+            key: group.status,
             status: group.status,
+            tone: group.status,
             title: boardTitles[group.status as TaskStatus] || group.status,
             tasks: Array.isArray(group.tasks) ? group.tasks.map(normalizeTask) : [],
           }))

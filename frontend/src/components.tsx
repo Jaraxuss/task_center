@@ -1,5 +1,6 @@
-import { FormEvent, ReactNode, useEffect, useMemo, useState } from 'react';
-import { Task, TaskEvent } from './types';
+import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { useIncrementalCount } from './hooks';
+import { Task, TaskEvent, TaskGroup } from './types';
 import {
   formatDateTime,
   formatDateTimeInput,
@@ -7,6 +8,7 @@ import {
   getTaskStateSummary,
   statusMeta,
   summarizeEvents,
+  TimeFormatMode,
   toIsoStringFromInput,
 } from './utils';
 
@@ -16,6 +18,8 @@ interface LayoutProps {
   apiBaseUrl: string;
   theme: 'light' | 'dark';
   onToggleTheme: () => void;
+  timeFormat: TimeFormatMode;
+  onTimeFormatChange: (value: TimeFormatMode) => void;
   children: ReactNode;
 }
 
@@ -25,7 +29,13 @@ const tabs = [
   { key: 'history', label: '历史', description: '检索记录，复盘变化链路', icon: '03' },
 ] as const;
 
-export function Layout({ activeView, onChangeView, apiBaseUrl, theme, onToggleTheme, children }: LayoutProps) {
+const timeFormatOptions: Array<{ value: TimeFormatMode; label: string; sample: string }> = [
+  { value: 'cn-short', label: '月日 + 时间', sample: '03-22 20:30' },
+  { value: 'ymd-24', label: '完整日期', sample: '2026-03-22 20:30' },
+  { value: 'slash-24', label: '斜杠格式', sample: '2026/03/22 20:30' },
+];
+
+export function Layout({ activeView, onChangeView, apiBaseUrl, theme, onToggleTheme, timeFormat, onTimeFormatChange, children }: LayoutProps) {
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -52,14 +62,27 @@ export function Layout({ activeView, onChangeView, apiBaseUrl, theme, onToggleTh
 
         <div className="sidebar-footer card subtle-card">
           <div className="sidebar-settings">
-            <div>
-              <span className="label-caption">界面主题</span>
-              <strong>{theme === 'dark' ? '深色模式' : '浅色模式'}</strong>
+            <div className="settings-block">
+              <div>
+                <span className="label-caption">设置</span>
+                <strong>外观与时间</strong>
+              </div>
+              <button className="ghost-toggle" onClick={onToggleTheme}>
+                <span aria-hidden="true">{theme === 'dark' ? '☀️' : '🌙'}</span>
+                <span>{theme === 'dark' ? '切到浅色' : '切到深色'}</span>
+              </button>
             </div>
-            <button className="ghost-toggle" onClick={onToggleTheme}>
-              <span aria-hidden="true">{theme === 'dark' ? '☀️' : '🌙'}</span>
-              <span>{theme === 'dark' ? '切到浅色' : '切到深色'}</span>
-            </button>
+
+            <label className="field field-compact">
+              <span className="label-caption">时间显示</span>
+              <select value={timeFormat} onChange={(e) => onTimeFormatChange(e.target.value as TimeFormatMode)}>
+                {timeFormatOptions.map((option) => (
+                  <option value={option.value} key={option.value}>
+                    {option.label} · {option.sample}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
           <div className="sidebar-divider" />
           <span className="label-caption">API Endpoint</span>
@@ -161,9 +184,11 @@ export function TaskList({
     <div className="task-list-shell">
       <div className="task-list-meta muted">
         <span>共 {tasks.length} 项</span>
-        <span>当前显示 {startIndex + 1}-{Math.min(startIndex + visibleTasks.length, tasks.length)} 项</span>
+        <span>
+          当前显示 {startIndex + 1}-{Math.min(startIndex + visibleTasks.length, tasks.length)} 项
+        </span>
       </div>
-      <div className="task-list">
+      <div className="task-list fade-in">
         {visibleTasks.map((task) => {
           const stateSummary = getTaskStateSummary(task);
           return (
@@ -198,44 +223,95 @@ export function BoardColumns({
   groups,
   onSelect,
   selectedTaskId,
+  groupMode,
+  onGroupModeChange,
 }: {
-  groups: Array<{ status: string; title: string; tasks: Task[] }>;
+  groups: TaskGroup[];
   onSelect: (task: Task) => void;
   selectedTaskId?: number;
+  groupMode: 'status' | 'project';
+  onGroupModeChange: (mode: 'status' | 'project') => void;
 }) {
   return (
-    <div className="board-grid">
-      {groups.map((group) => (
-        <section className="card board-column" key={group.status}>
-          <div className="board-column-header">
-            <div>
-              <StatusBadge status={group.status as Task['status']} />
-              <h4>{group.title}</h4>
-            </div>
-            <span className="pill">{group.tasks.length}</span>
-          </div>
-          <div className="board-column-body">
-            {group.tasks.length ? (
-              group.tasks.map((task) => (
-                <button key={task.id} className={`board-task ${selectedTaskId === task.id ? 'selected' : ''}`} onClick={() => onSelect(task)}>
-                  <div className="board-task-topline">
-                    <strong>{task.title}</strong>
-                    <span className="task-row-meta">#{task.id}</span>
-                  </div>
-                  <span className="muted">{task.description || '暂无描述'}</span>
-                  <div className="board-task-footer">
-                    <MetaChip label="时间" value={task.due_at ? formatDateTime(task.due_at) : '未设置'} />
-                    <MetaChip label="项目" value={task.project || '未分组'} />
-                  </div>
-                </button>
-              ))
-            ) : (
-              <EmptyState title="空列" description="这里暂时没有任务，说明这一档还没堵住。" compact />
-            )}
-          </div>
-        </section>
-      ))}
+    <div className="board-shell">
+      <div className="board-toolbar">
+        <div className="segmented-control" role="tablist" aria-label="看板分组方式">
+          <button className={groupMode === 'status' ? 'active' : ''} onClick={() => onGroupModeChange('status')}>
+            按状态
+          </button>
+          <button className={groupMode === 'project' ? 'active' : ''} onClick={() => onGroupModeChange('project')}>
+            按项目
+          </button>
+        </div>
+        <span className="muted board-toolbar-tip">横向滚动保留整块看板，列内默认先看最新 5 条，向下滚继续吃更多。</span>
+      </div>
+      <div className="board-scroll-shell">
+        <div className="board-grid board-grid-scrollable fade-in">
+          {groups.map((group) => (
+            <BoardColumn key={group.key} group={group} onSelect={onSelect} selectedTaskId={selectedTaskId} />
+          ))}
+        </div>
+      </div>
     </div>
+  );
+}
+
+function BoardColumn({ group, onSelect, selectedTaskId }: { group: TaskGroup; onSelect: (task: Task) => void; selectedTaskId?: number }) {
+  const { visibleCount, hasMore, loadMore } = useIncrementalCount(group.tasks.length, 5, 5, group.key);
+  const visibleTasks = group.tasks.slice(0, visibleCount);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!hasMore || !sentinelRef.current) return;
+    const node = sentinelRef.current;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) loadMore();
+      },
+      { rootMargin: '120px 0px' },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [hasMore, loadMore, visibleCount]);
+
+  return (
+    <section className="card board-column">
+      <div className="board-column-header">
+        <div>
+          {group.tone === 'project' ? <span className="group-badge">项目</span> : <StatusBadge status={group.tone || 'todo'} />}
+          <h4>{group.title}</h4>
+          {group.meta ? <p className="muted board-column-meta">{group.meta}</p> : null}
+        </div>
+        <span className="pill">{group.tasks.length}</span>
+      </div>
+      <div className="board-column-body">
+        {group.tasks.length ? (
+          <>
+            {visibleTasks.map((task) => (
+              <button key={task.id} className={`board-task ${selectedTaskId === task.id ? 'selected' : ''}`} onClick={() => onSelect(task)}>
+                <div className="board-task-topline">
+                  <strong>{task.title}</strong>
+                  <span className="task-row-meta">#{task.id}</span>
+                </div>
+                <span className="muted">{task.description || '暂无描述'}</span>
+                <div className="board-task-footer">
+                  <MetaChip label="时间" value={task.due_at ? formatDateTime(task.due_at) : '未设置'} />
+                  <MetaChip label="项目" value={task.project || '未分组'} />
+                </div>
+              </button>
+            ))}
+            {hasMore ? (
+              <>
+                <div ref={sentinelRef} className="board-load-sentinel" aria-hidden="true" />
+                <button className="board-load-more" onClick={loadMore}>加载更多（剩余 {group.tasks.length - visibleCount}）</button>
+              </>
+            ) : null}
+          </>
+        ) : (
+          <EmptyState title="空列" description="这里暂时没有任务，说明这一档还没堵住。" compact />
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -251,7 +327,7 @@ export function HistoryFilters({
   resultCount?: number;
 }) {
   return (
-    <div className="filters-toolbar card">
+    <div className="filters-toolbar card fade-in">
       <div className="filters-grid">
         <label className="field">
           <span className="label-caption">关键词</span>
@@ -289,6 +365,7 @@ export function TaskDetailModal({
   open,
   onClose,
   busyAction,
+  isLoadingDetails,
   onComplete,
   onSaveSchedule,
   onDefer,
@@ -299,6 +376,7 @@ export function TaskDetailModal({
   open: boolean;
   onClose: () => void;
   busyAction?: string | null;
+  isLoadingDetails?: boolean;
   onComplete: (task: Task) => void;
   onSaveSchedule: (task: Task, payload: { due_at: string | null }) => void;
   onDefer: (task: Task, payload: { deferred_to: string; note?: string }) => void;
@@ -370,6 +448,7 @@ export function TaskDetailModal({
             <div className="detail-header-topline">
               <StatusBadge status={task.status} />
               <span className="task-row-meta">任务 #{task.id}</span>
+              {isLoadingDetails ? <span className="loading-dot">详情更新中…</span> : null}
             </div>
             <h3>{task.title}</h3>
             <p className="muted">{task.description || '暂无描述，至少你现在知道这事还没被写明白。'}</p>
@@ -551,7 +630,41 @@ export function EmptyState({ title, description, compact = false }: { title: str
   );
 }
 
-export function LoadingState() {
+export function LoadingState({ mode = 'default' }: { mode?: 'default' | 'list' | 'board' }) {
+  if (mode === 'list') {
+    return (
+      <div className="skeleton-stack">
+        {Array.from({ length: 4 }).map((_, index) => (
+          <div className="card skeleton-card" key={index}>
+            <div className="skeleton-line short shimmer" />
+            <div className="skeleton-line shimmer" />
+            <div className="skeleton-line medium shimmer" />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (mode === 'board') {
+    return (
+      <div className="board-grid board-grid-scrollable">
+        {Array.from({ length: 4 }).map((_, index) => (
+          <div className="card board-column" key={index}>
+            <div className="skeleton-line short shimmer" />
+            <div className="skeleton-stack">
+              {Array.from({ length: 3 }).map((__, taskIndex) => (
+                <div className="board-task skeleton-card" key={taskIndex}>
+                  <div className="skeleton-line shimmer" />
+                  <div className="skeleton-line medium shimmer" />
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   return <div className="card empty-state"><strong>加载中…</strong><p className="muted">数据在路上，先别急着骂系统。</p></div>;
 }
 

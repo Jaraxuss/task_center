@@ -60,12 +60,16 @@ export interface DashboardToday {
   tasks: Task[];
 }
 
+export interface TaskGroup {
+  key: string;
+  title: string;
+  tasks: Task[];
+  tone?: TaskStatus | 'project';
+  meta?: string;
+}
+
 export interface DashboardBoard {
-  groups: Array<{
-    status: TaskStatus;
-    title: string;
-    tasks: Task[];
-  }>;
+  groups: TaskGroup[];
 }
 
 export interface HistoryResponse {
