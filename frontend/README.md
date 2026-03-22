@@ -20,6 +20,7 @@
 
 ```bash
 cd frontend
+cp .env.example .env.local
 npm install
 npm run dev
 ```
@@ -35,21 +36,45 @@ npm run preview
 
 ## 环境变量
 
-创建 `.env` 或 `.env.local`（可直接复制 `.env.example`）：
+创建 `.env` / `.env.local`（可直接复制 `.env.example`）。
+
+### 开发环境：推荐走 Vite dev server proxy
+
+开发环境默认不需要给浏览器配置完整后端 URL。当前实现里：
+
+- 浏览器侧请求相对路径：`/api/...`
+- Vite dev server 把 `/api` 代理到真实后端
+- 后端本身已经使用 `/api` 前缀，因此 **不需要 rewrite**
+
+开发时只要配置代理目标即可：
+
+```bash
+VITE_API_PROXY_TARGET=http://127.0.0.1:8000
+```
+
+如果你要把后端切到局域网机器 `192.168.31.169`，开发环境改成：
+
+```bash
+VITE_API_PROXY_TARGET=http://192.168.31.169:8000
+```
+
+这样前端依然从 `http://192.168.31.169:5173` 或 `http://localhost:5173` 发起同源请求 `/api/...`，再由 Vite 代理到真实后端，浏览器不会直接跨到 `8000`，因此不会撞上这类开发期 CORS 问题。
+
+### 非开发环境：如需显式指定 API 基地址
+
+如果不是通过 Vite dev server 运行，仍然可以显式设置：
 
 ```bash
 VITE_API_BASE_URL=http://127.0.0.1:8000
 ```
 
-如果后续要切到局域网机器，例如 `192.168.31.169`，只需要改这一行：
+当前权衡是：
 
-```bash
-VITE_API_BASE_URL=http://192.168.31.169:8000
-```
+- **dev 默认优先相对路径 + proxy**，解决联调时的跨域问题
+- **保留 `VITE_API_BASE_URL`**，用于 preview / 部署环境或你明确想走绝对地址的场景
+- Vite proxy target 也支持环境变量，避免把真实后端地址硬编码进 `vite.config.ts`
 
-如果未配置，前端会自动按当前页面 hostname 推断 API 地址：
-- 在 `127.0.0.1:5173` 打开前端时，默认请求 `http://127.0.0.1:8000`
-- 在 `192.168.31.169:5173` 打开前端时，默认请求 `http://192.168.31.169:8000`
+如果 `VITE_API_BASE_URL` 未配置且不是 dev 环境，前端仍会按当前页面 hostname 自动推断 `http://<hostname>:8000`。
 
 ## API Base URL 约定
 
@@ -87,6 +112,7 @@ frontend/
 │  ├─ styles.css      # MVP 样式
 │  ├─ types.ts        # 领域模型类型定义
 │  └─ utils.ts        # 时间/状态等辅助函数
+├─ .env.example
 ├─ index.html
 ├─ package.json
 ├─ tsconfig*.json
