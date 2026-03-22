@@ -3,6 +3,8 @@ import { api } from './api';
 import { useAsyncData, useLocalStorage } from './hooks';
 import {
   BoardColumns,
+  BoardFilterCondition,
+  BoardVisibleField,
   ErrorState,
   HistoryFilters,
   Layout,
@@ -19,23 +21,22 @@ type ViewMode = 'today' | 'board' | 'history';
 type ThemeMode = 'light' | 'dark';
 type BoardGroupMode = 'status' | 'project';
 
-const viewMeta: Record<ViewMode, { eyebrow: string; title: string; description: string }> = {
+const viewMeta: Record<ViewMode, { eyebrow: string; title: string }> = {
   today: {
-    eyebrow: 'Focus mode',
-    title: '今日先把该盯的事盯住',
-    description: '把今天必须推进的任务、提醒和异常项先捞出来，少切视图，少丢重点。',
+    eyebrow: 'Today',
+    title: '今日',
   },
   board: {
-    eyebrow: 'Flow overview',
-    title: '看板视角扫全局进度',
-    description: '按状态看流转是否顺畅，快速定位堵点、延期和未推进项。',
+    eyebrow: 'Board',
+    title: '看板',
   },
   history: {
-    eyebrow: 'Audit trail',
-    title: '历史记录用于复盘，不是考古',
-    description: '带着条件查记录，定位上下文、责任和时间线，不再盲翻。',
+    eyebrow: 'History',
+    title: '历史',
   },
 };
+
+const defaultBoardVisibleFields: BoardVisibleField[] = ['title', 'description', 'due_at', 'project', 'status'];
 
 function computeTodaySummary(tasks: Task[], date = new Date().toISOString().slice(0, 10)): DashboardToday['summary'] {
   const now = Date.now();
@@ -59,6 +60,67 @@ function upsertTask(list: Task[], updatedTask: Task) {
   return sortTasksByRecency(next);
 }
 
+function matchesBoardCondition(task: Task, condition: BoardFilterCondition) {
+  const value = (condition.value || '').trim();
+
+  if (condition.field === 'title' || condition.field === 'description') {
+    const target = String(condition.field === 'title' ? task.title : task.description || '').toLowerCase();
+    const input = value.toLowerCase();
+    switch (condition.operator) {
+      case 'contains':
+        return target.includes(input);
+      case 'not_contains':
+        return !target.includes(input);
+      case 'is':
+        return target === input;
+      case 'is_not':
+        return target !== input;
+      case 'is_empty':
+        return !target;
+      case 'is_not_empty':
+        return Boolean(target);
+      default:
+        return true;
+    }
+  }
+
+  if (condition.field === 'project' || condition.field === 'status') {
+    const target = String(condition.field === 'project' ? task.project || '' : task.status || '');
+    switch (condition.operator) {
+      case 'is':
+        return target === value;
+      case 'is_not':
+        return target !== value;
+      case 'is_empty':
+        return !target;
+      case 'is_not_empty':
+        return Boolean(target);
+      default:
+        return true;
+    }
+  }
+
+  if (condition.field === 'due_at') {
+    const target = task.due_at?.slice(0, 10) || '';
+    switch (condition.operator) {
+      case 'on':
+        return target === value;
+      case 'before':
+        return Boolean(target) && target < value;
+      case 'after':
+        return Boolean(target) && target > value;
+      case 'is_empty':
+        return !target;
+      case 'is_not_empty':
+        return Boolean(target);
+      default:
+        return true;
+    }
+  }
+
+  return true;
+}
+
 function App() {
   const [activeView, setActiveView] = useState<ViewMode>('today');
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
@@ -74,6 +136,9 @@ function App() {
   const [historyFilters, setHistoryFilters] = useState({ q: '', status: '', date: '' });
   const [historyQuery, setHistoryQuery] = useState(historyFilters);
   const [boardGroupMode, setBoardGroupMode] = useState<BoardGroupMode>('status');
+  const [boardFilters, setBoardFilters] = useLocalStorage<BoardFilterCondition[]>('task-center-board-filters', []);
+  const [boardVisibleFields, setBoardVisibleFields] = useLocalStorage<BoardVisibleField[]>('task-center-board-visible-fields', defaultBoardVisibleFields);
+  const [renamingProject, setRenamingProject] = useState<string | null>(null);
 
   const today = useAsyncData(() => api.getTodayDashboard(), [], activeView === 'today');
   const board = useAsyncData(() => api.getBoardDashboard(), [], activeView === 'board');
@@ -202,6 +267,21 @@ function App() {
     }
   };
 
+  const renameProject = async (currentName: string, nextName: string) => {
+    if (!board.data) return;
+    const affectedTasks = board.data.groups
+      .flatMap((group: TaskGroup) => group.tasks)
+      .filter((task: Task) => (task.project?.trim() || '未分组项目') === currentName);
+    if (!affectedTasks.length) return;
+    setRenamingProject(currentName);
+    try {
+      await Promise.all(affectedTasks.map((task: Task) => api.updateTask(task.id, { project: nextName })));
+      await refreshLoadedViews();
+    } finally {
+      setRenamingProject(null);
+    }
+  };
+
   const detailProps = {
     task: selectedTask,
     open: isDetailOpen,
@@ -216,21 +296,45 @@ function App() {
   };
 
   const boardStatusGroups: TaskGroup[] = board.data?.groups || [];
-  const boardProjectGroups = useMemo<TaskGroup[]>(() => groupTasksByProject(boardStatusGroups.flatMap((group: TaskGroup) => group.tasks)), [boardStatusGroups]);
-  const boardGroups = boardGroupMode === 'project' ? boardProjectGroups : boardStatusGroups;
+  const filteredBoardTasks = useMemo(
+    () => boardStatusGroups.flatMap((group: TaskGroup) => group.tasks).filter((task) => boardFilters.every((condition) => matchesBoardCondition(task, condition))),
+    [boardStatusGroups, boardFilters],
+  );
+  const boardProjectGroups = useMemo<TaskGroup[]>(() => groupTasksByProject(filteredBoardTasks), [filteredBoardTasks]);
+  const filteredStatusGroups = useMemo<TaskGroup[]>(() => {
+    const map = new Map<string, Task[]>();
+    boardStatusGroups.forEach((group) => map.set(group.key, []));
+    filteredBoardTasks.forEach((task) => {
+      const list = map.get(task.status) || [];
+      map.set(task.status, [...list, task]);
+    });
+    return boardStatusGroups.map((group) => ({ ...group, tasks: sortTasksByRecency(map.get(group.key) || []) }));
+  }, [boardStatusGroups, filteredBoardTasks]);
+  const boardGroups = boardGroupMode === 'project' ? boardProjectGroups : filteredStatusGroups;
+  const projectOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          boardStatusGroups.flatMap((group: TaskGroup) =>
+            group.tasks.map((task: Task) => task.project?.trim()).filter(Boolean) as string[],
+          ),
+        ),
+      ).sort((a, b) => a.localeCompare(b, 'zh-CN')),
+    [boardStatusGroups],
+  );
 
   const boardMetrics = useMemo(() => {
     if (!board.data) return { total: 0, active: 0, blocked: 0 };
-    const total = board.data.groups.reduce((sum: number, group: TaskGroup) => sum + group.tasks.length, 0);
-    const active = board.data.groups.find((group: TaskGroup) => group.key === ('doing' satisfies TaskStatus))?.tasks.length || 0;
-    const blocked = board.data.groups.find((group: TaskGroup) => group.key === ('deferred' satisfies TaskStatus))?.tasks.length || 0;
+    const total = filteredBoardTasks.length;
+    const active = filteredBoardTasks.filter((task) => task.status === ('doing' satisfies TaskStatus)).length;
+    const blocked = filteredBoardTasks.filter((task) => task.status === ('deferred' satisfies TaskStatus)).length;
     return { total, active, blocked };
-  }, [board.data]);
+  }, [board.data, filteredBoardTasks]);
 
   const todaySummaryHighlight = useMemo(() => {
     if (!today.data) return '';
     const { total, open, overdue, completed, dueToday } = today.data.summary;
-    return `今天共 ${total} 项任务，未完成 ${open} 项，今日到期 ${dueToday} 项${overdue ? `，其中逾期 ${overdue} 项要先灭火` : '，当前没有逾期项'}；已完成 ${completed} 项。`;
+    return `共 ${total} 项，未完成 ${open}，今日到期 ${dueToday}，逾期 ${overdue}，已完成 ${completed}`;
   }, [today.data]);
 
   const currentContent = useMemo(() => {
@@ -242,7 +346,6 @@ function App() {
           <ViewHero
             eyebrow={viewMeta.today.eyebrow}
             title={viewMeta.today.title}
-            description={viewMeta.today.description}
             highlight={todaySummaryHighlight}
             metrics={[
               { label: '未完成', value: String(today.data.summary.open), tone: 'brand' },
@@ -254,8 +357,7 @@ function App() {
 
           <section className="view-column">
             <Panel
-              title="今日任务池"
-              description="列表优先按今天视角呈现，先处理到期、逾期和正在推进的事项。"
+              title="任务"
               actions={
                 <div className="toolbar-inline">
                   <span className="label-caption">每页</span>
@@ -290,8 +392,7 @@ function App() {
           <ViewHero
             eyebrow={viewMeta.board.eyebrow}
             title={viewMeta.board.title}
-            description={viewMeta.board.description}
-            highlight={`当前共 ${boardMetrics.total} 项任务分布在各状态列。优先关注进行中和延期列是否堆积。`}
+            highlight={`当前筛选后 ${boardMetrics.total} 项任务`}
             metrics={[
               { label: '总任务', value: String(boardMetrics.total), tone: 'brand' },
               { label: '进行中', value: String(boardMetrics.active), tone: 'default' },
@@ -299,13 +400,21 @@ function App() {
             ]}
           />
           <section className="view-column">
-            <Panel title="状态看板" description="看整体流转，找堆积点，别靠直觉管理进度。">
+            <Panel title="看板">
               <BoardColumns
                 groups={boardGroups}
                 selectedTaskId={selectedTask?.id}
                 onSelect={openTaskDetail}
                 groupMode={boardGroupMode}
                 onGroupModeChange={setBoardGroupMode}
+                filters={boardFilters}
+                onFiltersChange={setBoardFilters}
+                visibleFields={boardVisibleFields.length ? boardVisibleFields : defaultBoardVisibleFields}
+                onVisibleFieldsChange={setBoardVisibleFields}
+                projectOptions={projectOptions}
+                onRenameProject={renameProject}
+                renamingProject={renamingProject}
+                renameProjectSupported={false}
               />
             </Panel>
           </section>
@@ -320,8 +429,7 @@ function App() {
         <ViewHero
           eyebrow={viewMeta.history.eyebrow}
           title={viewMeta.history.title}
-          description={viewMeta.history.description}
-          highlight={`当前命中 ${history.data.total} 条历史任务记录。先用关键词和状态缩窄范围，再看详情时间线。`}
+          highlight={`当前命中 ${history.data.total} 条记录`}
           metrics={[
             { label: '命中记录', value: String(history.data.total), tone: 'brand' },
             { label: '筛选状态', value: historyFilters.status || '全部', tone: 'default' },
@@ -331,7 +439,6 @@ function App() {
         <section className="view-column">
           <Panel
             title="历史检索"
-            description="带着条件查，少翻无效记录，复盘效率会高很多。"
             actions={
               <div className="toolbar-inline toolbar-inline-split">
                 <div className="toolbar-inline">
@@ -375,6 +482,10 @@ function App() {
     todaySummaryHighlight,
     boardGroups,
     boardGroupMode,
+    boardFilters,
+    boardVisibleFields,
+    projectOptions,
+    renamingProject,
   ]);
 
   return (
