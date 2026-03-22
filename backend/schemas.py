@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from models import EventType, ReminderStatus, TaskStatus
 
@@ -27,13 +27,25 @@ class ReminderRead(BaseModel):
     model_config = {"from_attributes": True}
 
 
+def normalize_project_name(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+
 class TaskBase(BaseModel):
     title: str = Field(..., min_length=1, max_length=255)
     description: str | None = None
     due_at: datetime | None = None
-    project: str | None = None
+    project: str | None = Field(default=None, max_length=128)
     tags: list[str] = Field(default_factory=list)
     source: str = "web"
+
+    @field_validator("project", mode="before")
+    @classmethod
+    def normalize_project(cls, value: str | None) -> str | None:
+        return normalize_project_name(value)
 
 
 class TaskCreate(TaskBase):
@@ -44,10 +56,15 @@ class TaskUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = None
     due_at: datetime | None = None
-    project: str | None = None
+    project: str | None = Field(default=None, max_length=128)
     tags: list[str] | None = None
     source: str | None = None
     status: str | None = None
+
+    @field_validator("project", mode="before")
+    @classmethod
+    def normalize_project(cls, value: str | None) -> str | None:
+        return normalize_project_name(value)
 
 
 class TaskActionComplete(BaseModel):
@@ -99,6 +116,33 @@ class TaskDetail(TaskRead):
 class TaskBoardGroup(BaseModel):
     status: str
     tasks: list[TaskRead]
+
+
+class ProjectSummary(BaseModel):
+    name: str
+    task_count: int
+    open_task_count: int
+    done_task_count: int
+
+
+class ProjectRenameRequest(BaseModel):
+    old_name: str = Field(..., min_length=1, max_length=128)
+    new_name: str = Field(..., min_length=1, max_length=128)
+
+    @field_validator("old_name", "new_name", mode="before")
+    @classmethod
+    def normalize_name(cls, value: str) -> str:
+        normalized = normalize_project_name(value)
+        if not normalized:
+            raise ValueError("Project name cannot be empty")
+        return normalized
+
+
+class ProjectRenameResponse(BaseModel):
+    old_name: str
+    new_name: str
+    updated_task_count: int
+    project: ProjectSummary
 
 
 class TodaySummary(BaseModel):

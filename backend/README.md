@@ -100,6 +100,10 @@ python seed_demo.py
 - `POST /api/tasks/{task_id}/cancel`
 - `POST /api/tasks/{task_id}/reminders`
 
+### 项目
+- `GET /api/projects`
+- `PATCH /api/projects/rename`
+
 ### 仪表盘 / 查询
 - `GET /api/dashboard`
 - `GET /api/dashboard/today`
@@ -116,7 +120,7 @@ python seed_demo.py
 - `description`：详细描述
 - `due_at`：任务时间
 - `status`：`todo | doing | done | deferred | canceled`
-- `project`：所属项目
+- `project`：所属项目；当前直接存放在 `tasks.project` 中，项目改名也是批量更新该字段
 - `tags`：标签（API 输出为数组，库内以 JSON 字符串存储）
 - `source`：来源（如 `chat` / `web` / `system`）
 - `completed_at` / `canceled_at` / `deferred_to`
@@ -161,6 +165,36 @@ curl -X POST http://127.0.0.1:8000/api/tasks/1/defer \
     "deferred_to": "2026-03-20T09:30:00",
     "reason": "等待上游素材"
   }'
+```
+
+### 查看项目分组
+```bash
+curl http://127.0.0.1:8000/api/projects
+```
+
+### 项目改名
+```bash
+curl -X PATCH http://127.0.0.1:8000/api/projects/rename \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "old_name": "常熟伊斯格",
+    "new_name": "常熟伊斯格-AI"
+  }'
+```
+
+返回示例：
+```json
+{
+  "old_name": "常熟伊斯格",
+  "new_name": "常熟伊斯格-AI",
+  "updated_task_count": 3,
+  "project": {
+    "name": "常熟伊斯格-AI",
+    "task_count": 3,
+    "open_task_count": 2,
+    "done_task_count": 1
+  }
+}
 ```
 
 ## 后续建议

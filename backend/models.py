@@ -32,6 +32,7 @@ class EventType(str, Enum):
     DEFERRED = "deferred"
     COMPLETED = "completed"
     CANCELED = "canceled"
+    PROJECT_RENAMED = "project_renamed"
     NIGHTLY_REVIEWED = "nightly_reviewed"
 
 

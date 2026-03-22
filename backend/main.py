@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
+from config import get_settings
 from db import Base, SessionLocal, engine, get_db
 from models import EventType, Reminder, ReminderStatus, Task, TaskEvent, TaskStatus
 from schemas import (
@@ -18,6 +19,9 @@ from schemas import (
     HealthResponse,
     HistorySummary,
     NightlyReviewPlaceholder,
+    ProjectRenameRequest,
+    ProjectRenameResponse,
+    ProjectSummary,
     ReminderCreate,
     ReminderRead,
     TaskActionCancel,
@@ -32,13 +36,12 @@ from schemas import (
     TodaySummary,
 )
 
+settings = get_settings()
+
 app = FastAPI(title="Task Center Backend", version="0.1.0")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://127.0.0.1:5173",
-        "http://localhost:5173",
-    ],
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -182,6 +185,29 @@ def build_history_summary(db: Session, *, target: date | None = None, status: st
     return HistorySummary(tasks=items, total=len(items))
 
 
+def build_project_summaries(db: Session) -> list[ProjectSummary]:
+    tasks = list(db.scalars(select(Task).where(Task.project.is_not(None))).unique())
+    grouped: dict[str, list[Task]] = {}
+    for task in tasks:
+        if not task.project:
+            continue
+        grouped.setdefault(task.project, []).append(task)
+
+    open_statuses = {TaskStatus.TODO.value, TaskStatus.DOING.value, TaskStatus.DEFERRED.value}
+    return sorted(
+        [
+            ProjectSummary(
+                name=project_name,
+                task_count=len(project_tasks),
+                open_task_count=sum(1 for task in project_tasks if task.status in open_statuses),
+                done_task_count=sum(1 for task in project_tasks if task.status == TaskStatus.DONE.value),
+            )
+            for project_name, project_tasks in grouped.items()
+        ],
+        key=lambda item: (-item.open_task_count, -item.task_count, item.name),
+    )
+
+
 @app.get("/api/health", response_model=HealthResponse)
 def health() -> HealthResponse:
     return HealthResponse(status="ok", db=str(DB_PATH), now=datetime.utcnow())
@@ -200,6 +226,48 @@ def list_tasks(
         stmt = stmt.where(Task.due_at.between(start, end - timedelta(microseconds=1)))
     tasks = list(db.scalars(stmt).unique())
     return [serialize_task(task) for task in tasks]
+
+
+@app.get("/api/projects", response_model=list[ProjectSummary])
+def list_projects(db: Session = Depends(get_db)) -> list[ProjectSummary]:
+    return build_project_summaries(db)
+
+
+@app.patch("/api/projects/rename", response_model=ProjectRenameResponse)
+def rename_project(payload: ProjectRenameRequest, db: Session = Depends(get_db)) -> ProjectRenameResponse:
+    if payload.old_name == payload.new_name:
+        raise HTTPException(status_code=400, detail="Project name is unchanged")
+
+    tasks = list(
+        db.scalars(
+            select(Task)
+            .where(Task.project == payload.old_name)
+            .options(selectinload(Task.reminders), selectinload(Task.events))
+        ).unique()
+    )
+    if not tasks:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    for task in tasks:
+        task.project = payload.new_name
+        add_event(
+            db,
+            task,
+            EventType.PROJECT_RENAMED.value,
+            {"old_name": payload.old_name, "new_name": payload.new_name},
+        )
+
+    db.commit()
+    project_summary = next((item for item in build_project_summaries(db) if item.name == payload.new_name), None)
+    if project_summary is None:
+        raise HTTPException(status_code=500, detail="Project rename persisted but summary lookup failed")
+
+    return ProjectRenameResponse(
+        old_name=payload.old_name,
+        new_name=payload.new_name,
+        updated_task_count=len(tasks),
+        project=project_summary,
+    )
 
 
 @app.get("/api/tasks/{task_id}", response_model=TaskDetail)
