@@ -35,17 +35,21 @@ npm run preview
 
 ## 环境变量
 
-创建 `.env` 或 `.env.local`：
+创建 `.env` 或 `.env.local`（可直接复制 `.env.example`）：
 
 ```bash
-VITE_API_BASE_URL=http://localhost:8000
+VITE_API_BASE_URL=http://127.0.0.1:8000
 ```
 
-如果未配置，前端默认使用：
+如果后续要切到局域网机器，例如 `192.168.31.169`，只需要改这一行：
 
 ```bash
-http://localhost:8000
+VITE_API_BASE_URL=http://192.168.31.169:8000
 ```
+
+如果未配置，前端会自动按当前页面 hostname 推断 API 地址：
+- 在 `127.0.0.1:5173` 打开前端时，默认请求 `http://127.0.0.1:8000`
+- 在 `192.168.31.169:5173` 打开前端时，默认请求 `http://192.168.31.169:8000`
 
 ## API Base URL 约定
 

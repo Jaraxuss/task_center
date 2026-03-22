@@ -52,9 +52,24 @@ python -c "from main import init_db; init_db(); print('db initialized')"
 ```
 
 ## 启动开发服务
+默认配置可直接这样启动：
 ```bash
 source .venv/bin/activate
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
+```
+
+如果要把监听地址 / 允许跨域的前端地址做成可改配置，先导出环境变量（也可参考 `.env.example` 自己放进启动脚本）：
+```bash
+export TASK_CENTER_API_HOST=0.0.0.0
+export TASK_CENTER_API_PORT=8000
+export TASK_CENTER_CORS_ORIGINS=http://127.0.0.1:5173,http://localhost:5173
+source .venv/bin/activate
+uvicorn main:app --reload --host "$TASK_CENTER_API_HOST" --port "$TASK_CENTER_API_PORT"
+```
+
+如果前端改到 `192.168.31.169:5173`，把 CORS 一并改掉即可：
+```bash
+export TASK_CENTER_CORS_ORIGINS=http://192.168.31.169:5173,http://127.0.0.1:5173,http://localhost:5173
 ```
 
 启动后可访问：
