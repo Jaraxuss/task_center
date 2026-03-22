@@ -21,6 +21,14 @@ type ViewMode = 'today' | 'board' | 'history';
 type ThemeMode = 'light' | 'dark';
 type BoardGroupMode = 'status' | 'project';
 
+type ThemeTransitionState = 'idle' | 'animating';
+
+const BOARD_CONTENT_MAX_MIN = 20;
+const BOARD_CONTENT_MAX_DEFAULT = 50;
+const BOARD_CONTENT_MAX_LIMIT = 200;
+const THEME_TRANSITION_TOTAL_MS = 960;
+const THEME_SWITCH_DELAY_MS = 360;
+
 const viewMeta: Record<ViewMode, { eyebrow: string; title: string }> = {
   today: {
     eyebrow: 'Today',
@@ -37,6 +45,11 @@ const viewMeta: Record<ViewMode, { eyebrow: string; title: string }> = {
 };
 
 const defaultBoardVisibleFields: BoardVisibleField[] = ['title', 'description', 'due_at', 'project', 'status'];
+
+function clampBoardContentMaxLength(value: number) {
+  if (!Number.isFinite(value)) return BOARD_CONTENT_MAX_DEFAULT;
+  return Math.min(BOARD_CONTENT_MAX_LIMIT, Math.max(BOARD_CONTENT_MAX_MIN, Math.round(value)));
+}
 
 function computeTodaySummary(tasks: Task[], date = new Date().toISOString().slice(0, 10)): DashboardToday['summary'] {
   const now = Date.now();
@@ -138,6 +151,8 @@ function App() {
   const [boardGroupMode, setBoardGroupMode] = useState<BoardGroupMode>('status');
   const [boardFilters, setBoardFilters] = useLocalStorage<BoardFilterCondition[]>('task-center-board-filters', []);
   const [boardVisibleFields, setBoardVisibleFields] = useLocalStorage<BoardVisibleField[]>('task-center-board-visible-fields', defaultBoardVisibleFields);
+  const [boardContentMaxLength, setBoardContentMaxLength] = useLocalStorage<number>('task-center-board-content-max-length', BOARD_CONTENT_MAX_DEFAULT);
+  const [themeTransitionState, setThemeTransitionState] = useState<ThemeTransitionState>('idle');
   const [renamingProject, setRenamingProject] = useState<string | null>(null);
   const [boardFeedback, setBoardFeedback] = useState<{ tone: 'success' | 'danger'; message: string } | null>(null);
 
@@ -159,19 +174,10 @@ function App() {
   }, [timeFormat]);
 
   useEffect(() => {
-    const pool = [today.data?.tasks, ...(board.data?.groups.map((group: TaskGroup) => group.tasks) || []), history.data?.items]
-      .flat()
-      .filter(Boolean) as Task[];
-    if (!pool.length) return;
-    if (!selectedTask) {
-      setSelectedTask(pool[0]);
-      return;
+    if (boardContentMaxLength !== clampBoardContentMaxLength(boardContentMaxLength)) {
+      setBoardContentMaxLength(clampBoardContentMaxLength(boardContentMaxLength));
     }
-    const refreshed = pool.find((task) => task.id === selectedTask.id);
-    if (refreshed) {
-      setSelectedTask((current) => ({ ...refreshed, reminders: current?.reminders, events: current?.events }));
-    }
-  }, [today.data, board.data, history.data, selectedTask]);
+  }, [boardContentMaxLength, setBoardContentMaxLength]);
 
   useEffect(() => {
     if (!selectedTask?.id || !isDetailOpen) return;
@@ -192,6 +198,21 @@ function App() {
       cancelled = true;
     };
   }, [selectedTask?.id, isDetailOpen]);
+
+  useEffect(() => {
+    const pool = [today.data?.tasks, ...(board.data?.groups.map((group: TaskGroup) => group.tasks) || []), history.data?.items]
+      .flat()
+      .filter(Boolean) as Task[];
+    if (!pool.length) return;
+    if (!selectedTask) {
+      setSelectedTask(pool[0]);
+      return;
+    }
+    const refreshed = pool.find((task) => task.id === selectedTask.id);
+    if (refreshed) {
+      setSelectedTask((current) => ({ ...refreshed, reminders: current?.reminders, events: current?.events }));
+    }
+  }, [today.data, board.data, history.data, selectedTask]);
 
   useEffect(() => {
     setTodayPage(1);
@@ -293,6 +314,21 @@ function App() {
     } finally {
       setRenamingProject(null);
     }
+  };
+
+  const handleBoardContentMaxLengthChange = (value: number) => {
+    setBoardContentMaxLength(clampBoardContentMaxLength(value));
+  };
+
+  const handleToggleTheme = () => {
+    if (themeTransitionState === 'animating') return;
+    setThemeTransitionState('animating');
+    window.setTimeout(() => {
+      setTheme((current) => (current === 'light' ? 'dark' : 'light'));
+    }, THEME_SWITCH_DELAY_MS);
+    window.setTimeout(() => {
+      setThemeTransitionState('idle');
+    }, THEME_TRANSITION_TOTAL_MS);
   };
 
   const detailProps = {
@@ -448,6 +484,7 @@ function App() {
                   onRenameProject={renameProject}
                   renamingProject={renamingProject}
                   renameProjectSupported={!projects.error}
+                  boardContentMaxLength={boardContentMaxLength}
                 />
               </div>
             </Panel>
@@ -518,8 +555,11 @@ function App() {
     boardGroupMode,
     boardFilters,
     boardVisibleFields,
+    boardContentMaxLength,
     projectOptions,
     renamingProject,
+    boardFeedback,
+    projects.error,
   ]);
 
   return (
@@ -529,12 +569,23 @@ function App() {
         onChangeView={setActiveView}
         apiBaseUrl={api.baseUrl}
         theme={theme}
-        onToggleTheme={() => setTheme(theme === 'light' ? 'dark' : 'light')}
+        onToggleTheme={handleToggleTheme}
         timeFormat={timeFormat}
         onTimeFormatChange={setTimeFormat}
+        boardContentMaxLength={boardContentMaxLength}
+        onBoardContentMaxLengthChange={handleBoardContentMaxLengthChange}
+        themeTransitionState={themeTransitionState}
       >
         {currentContent}
       </Layout>
+      {themeTransitionState === 'animating' ? (
+        <div className="theme-transition-overlay" aria-hidden="true">
+          <div className="theme-transition-scene">
+            <div className="theme-transition-orb theme-transition-sun">☀</div>
+            <div className="theme-transition-orb theme-transition-moon">☾</div>
+          </div>
+        </div>
+      ) : null}
       <TaskDetailModal {...detailProps} />
     </>
   );

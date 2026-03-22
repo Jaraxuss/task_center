@@ -19,6 +19,9 @@ interface LayoutProps {
   onToggleTheme: () => void;
   timeFormat: TimeFormatMode;
   onTimeFormatChange: (value: TimeFormatMode) => void;
+  boardContentMaxLength: number;
+  onBoardContentMaxLengthChange: (value: number) => void;
+  themeTransitionState?: 'idle' | 'animating';
   children: ReactNode;
 }
 
@@ -93,7 +96,22 @@ const statusOptions: Array<{ value: TaskStatus; label: string }> = [
   { value: 'canceled', label: '已取消' },
 ];
 
-export function Layout({ activeView, onChangeView, apiBaseUrl, theme, onToggleTheme, timeFormat, onTimeFormatChange, children }: LayoutProps) {
+const BOARD_CONTENT_MAX_MIN = 20;
+const BOARD_CONTENT_MAX_LIMIT = 200;
+
+export function Layout({
+  activeView,
+  onChangeView,
+  apiBaseUrl,
+  theme,
+  onToggleTheme,
+  timeFormat,
+  onTimeFormatChange,
+  boardContentMaxLength,
+  onBoardContentMaxLengthChange,
+  themeTransitionState = 'idle',
+  children,
+}: LayoutProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   return (
@@ -129,20 +147,21 @@ export function Layout({ activeView, onChangeView, apiBaseUrl, theme, onToggleTh
       </aside>
       <main className="main-content">{children}</main>
       {settingsOpen ? (
-        <ModalFrame title="设置" onClose={() => setSettingsOpen(false)} width="520px">
+        <ModalFrame title="设置" onClose={() => setSettingsOpen(false)} width="min(560px, calc(100vw - 32px))" placement="center">
           <div className="settings-panel-grid">
-            <div className="settings-panel-card">
-              <div>
+            <div className="settings-panel-card settings-panel-card-stack">
+              <div className="settings-panel-card-copy">
                 <span className="label-caption">主题</span>
                 <strong>外观模式</strong>
+                <p className="muted">带一点情绪价值，但不搞成蹦迪现场。</p>
               </div>
-              <button className="ghost-toggle" onClick={onToggleTheme}>
-                <span aria-hidden="true">{theme === 'dark' ? '☀️' : '🌙'}</span>
-                <span>{theme === 'dark' ? '切到浅色' : '切到深色'}</span>
+              <button className="ghost-toggle theme-toggle-button" onClick={onToggleTheme} disabled={themeTransitionState === 'animating'}>
+                <span className="theme-toggle-icon" aria-hidden="true">{theme === 'dark' ? '☀︎' : '☾'}</span>
+                <span>{themeTransitionState === 'animating' ? '切换中…' : theme === 'dark' ? '切到浅色' : '切到深色'}</span>
               </button>
             </div>
 
-            <label className="field">
+            <label className="field settings-field-card">
               <span className="label-caption">时间显示</span>
               <select value={timeFormat} onChange={(e) => onTimeFormatChange(e.target.value as TimeFormatMode)}>
                 {timeFormatOptions.map((option) => (
@@ -151,6 +170,19 @@ export function Layout({ activeView, onChangeView, apiBaseUrl, theme, onToggleTh
                   </option>
                 ))}
               </select>
+            </label>
+
+            <label className="field settings-field-card">
+              <span className="label-caption">看板内容最大显示字符数</span>
+              <input
+                type="number"
+                min={BOARD_CONTENT_MAX_MIN}
+                max={BOARD_CONTENT_MAX_LIMIT}
+                step={5}
+                value={boardContentMaxLength}
+                onChange={(e) => onBoardContentMaxLengthChange(Number(e.target.value))}
+              />
+              <span className="muted settings-helper-text">默认 50，允许 {BOARD_CONTENT_MAX_MIN} - {BOARD_CONTENT_MAX_LIMIT}，会自动持久化保存。</span>
             </label>
           </div>
         </ModalFrame>
@@ -300,6 +332,7 @@ export function BoardColumns({
   onRenameProject,
   renamingProject,
   renameProjectSupported,
+  boardContentMaxLength,
 }: {
   groups: TaskGroup[];
   onSelect: (task: Task) => void;
@@ -314,8 +347,10 @@ export function BoardColumns({
   onRenameProject: (currentName: string, nextName: string) => Promise<void>;
   renamingProject?: string | null;
   renameProjectSupported?: boolean;
+  boardContentMaxLength: number;
 }) {
   const [builderOpen, setBuilderOpen] = useState(false);
+  const [visibleFieldsOpen, setVisibleFieldsOpen] = useState(false);
 
   const addCondition = () => {
     const nextId = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -360,16 +395,14 @@ export function BoardColumns({
             </button>
           </div>
           <button onClick={() => setBuilderOpen((current) => !current)}>{builderOpen ? '收起筛选' : '筛选'}</button>
+          <button onClick={() => setVisibleFieldsOpen((current) => !current)}>{visibleFieldsOpen ? '收起显示字段' : '显示字段'}</button>
         </div>
-        <div className="toolbar-inline toolbar-wrap field-toggle-wrap">
-          <span className="label-caption">显示字段</span>
-          {visibleFieldOptions.map((option) => (
-            <label className="checkbox-chip" key={option.key}>
-              <input type="checkbox" checked={visibleFields.includes(option.key)} onChange={() => toggleField(option.key)} />
-              <span>{option.label}</span>
-            </label>
-          ))}
-        </div>
+        {!visibleFieldsOpen ? (
+          <div className="toolbar-inline toolbar-wrap field-toggle-summary muted">
+            <span className="label-caption">显示字段</span>
+            <span>{visibleFields.map((field) => visibleFieldOptions.find((option) => option.key === field)?.label || field).join(' · ')}</span>
+          </div>
+        ) : null}
       </div>
 
       {builderOpen ? (
@@ -425,6 +458,25 @@ export function BoardColumns({
         </div>
       ) : null}
 
+      {visibleFieldsOpen ? (
+        <div className="board-filter-builder card fade-in">
+          <div className="board-filter-builder-header">
+            <div>
+              <h4>显示字段</h4>
+              <p className="muted">控制看板卡片里展示哪些信息，至少保留一个字段。</p>
+            </div>
+          </div>
+          <div className="toolbar-inline toolbar-wrap field-toggle-wrap">
+            {visibleFieldOptions.map((option) => (
+              <label className="checkbox-chip" key={option.key}>
+                <input type="checkbox" checked={visibleFields.includes(option.key)} onChange={() => toggleField(option.key)} />
+                <span>{option.label}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       <div className="board-scroll-shell">
         <div className="board-grid board-grid-scrollable fade-in">
           {groups.map((group) => (
@@ -438,6 +490,7 @@ export function BoardColumns({
               onRenameProject={onRenameProject}
               renamingProject={renamingProject}
               renameProjectSupported={renameProjectSupported}
+              boardContentMaxLength={boardContentMaxLength}
             />
           ))}
         </div>
@@ -493,6 +546,7 @@ function BoardColumn({
   onRenameProject,
   renamingProject,
   renameProjectSupported,
+  boardContentMaxLength,
 }: {
   group: TaskGroup;
   onSelect: (task: Task) => void;
@@ -502,6 +556,7 @@ function BoardColumn({
   onRenameProject: (currentName: string, nextName: string) => Promise<void>;
   renamingProject?: string | null;
   renameProjectSupported?: boolean;
+  boardContentMaxLength: number;
 }) {
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState(group.title);
@@ -547,8 +602,13 @@ function BoardColumn({
               ) : (
                 <>
                   <h4>{group.title}</h4>
-                  <button className="ghost-link" onClick={() => setIsEditingTitle(true)}>
-                    重命名
+                  <button
+                    className="icon-button subtle-icon-button"
+                    onClick={() => setIsEditingTitle(true)}
+                    title="修改项目名称"
+                    aria-label={`修改项目“${group.title}”名称`}
+                  >
+                    ✎
                   </button>
                 </>
               )}
@@ -578,7 +638,7 @@ function BoardColumn({
                   {!visibleFields.includes('status') ? <span className="task-row-meta">#{task.id}</span> : null}
                 </div>
               ) : null}
-              {visibleFields.includes('description') ? <span className="muted board-task-description">{truncateText(task.description || '暂无描述', 30)}</span> : null}
+              {visibleFields.includes('description') ? <span className="muted board-task-description">{truncateText(task.description || '暂无描述', boardContentMaxLength)}</span> : null}
               <div className="board-task-footer">
                 {visibleFields.includes('due_at') ? <MetaChip label="日期" value={task.due_at ? formatDateTime(task.due_at) : '未设置'} /> : null}
                 {visibleFields.includes('project') ? <MetaChip label="项目" value={task.project || '未分组'} /> : null}
@@ -597,7 +657,19 @@ function truncateText(value: string, maxLength: number) {
   return value.length > maxLength ? `${value.slice(0, maxLength)}...` : value;
 }
 
-function ModalFrame({ title, onClose, children, width = '860px' }: { title: string; onClose: () => void; children: ReactNode; width?: string }) {
+function ModalFrame({
+  title,
+  onClose,
+  children,
+  width = '860px',
+  placement = 'side',
+}: {
+  title: string;
+  onClose: () => void;
+  children: ReactNode;
+  width?: string;
+  placement?: 'side' | 'center';
+}) {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose();
@@ -612,8 +684,8 @@ function ModalFrame({ title, onClose, children, width = '860px' }: { title: stri
   }, [onClose]);
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <aside className="detail-modal card card-elevated" style={{ width }} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={title}>
+    <div className={`modal-backdrop modal-backdrop-${placement}`} onClick={onClose}>
+      <aside className={`detail-modal card card-elevated ${placement === 'center' ? 'detail-modal-centered' : ''}`} style={{ width }} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={title}>
         <div className="detail-modal-header">
           <div className="detail-header-main">
             <h3>{title}</h3>
