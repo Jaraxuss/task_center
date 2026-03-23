@@ -15,7 +15,7 @@ import {
   TaskList,
   ViewHero,
 } from './components';
-import { DashboardBoard, DashboardToday, HistoryResponse, ProjectSummary, Task, TaskGroup } from './types';
+import { DashboardBoard, DashboardToday, HistoryResponse, PlanGroup, ProjectSummary, Task, TaskGroup } from './types';
 import { groupTasksByProject, sortTasksByRecency, TimeFormatMode } from './utils';
 
 type ViewMode = 'today' | 'plan' | 'board' | 'history';
@@ -243,19 +243,27 @@ function App() {
   }, [selectedTask?.id, isDetailOpen]);
 
   useEffect(() => {
-    const pool = [today.data?.tasks, ...(board.data?.groups.map((group: TaskGroup) => group.tasks) || []), history.data?.items]
+    const pool = [
+      today.data?.tasks,
+      ...(today.data?.planGroups.map((group: PlanGroup) => group.tasks) || []),
+      ...(board.data?.groups.map((group: TaskGroup) => group.tasks) || []),
+      history.data?.items,
+    ]
       .flat()
       .filter(Boolean) as Task[];
     if (!pool.length) return;
-    if (!selectedTask) {
+    if (!selectedTask?.id) {
       setSelectedTask(pool[0]);
       return;
     }
     const refreshed = pool.find((task) => task.id === selectedTask.id);
     if (refreshed) {
-      setSelectedTask((current) => ({ ...refreshed, reminders: current?.reminders, events: current?.events }));
+      setSelectedTask((current) => {
+        if (!current || current.id !== refreshed.id) return current;
+        return { ...refreshed, reminders: current.reminders, events: current.events };
+      });
     }
-  }, [today.data, board.data, history.data, selectedTask]);
+  }, [today.data, board.data, history.data, selectedTask?.id]);
 
   useEffect(() => {
     setTodayPage(1);
