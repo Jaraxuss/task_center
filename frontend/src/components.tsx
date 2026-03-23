@@ -1101,7 +1101,7 @@ function EventRow({ event }: { event: TaskEvent }) {
 }
 
 function StatusBadge({ status }: { status: Task['status'] }) {
-  const meta = statusMeta[status];
+  const meta = statusMeta[status] || statusMeta.todo;
   return <span className={`status-badge ${meta.tone}`}>{meta.label}</span>;
 }
 

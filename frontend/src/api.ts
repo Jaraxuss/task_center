@@ -22,6 +22,25 @@ const boardTitles: Record<TaskStatus, string> = {
   canceled: '已取消',
 };
 
+function normalizeTaskStatus(status: unknown): TaskStatus {
+  switch (status) {
+    case 'todo':
+    case 'doing':
+    case 'done':
+    case 'deferred':
+    case 'canceled':
+      return status;
+    case 'open':
+      return 'todo';
+    case 'completed':
+      return 'done';
+    case 'cancelled':
+      return 'canceled';
+    default:
+      return 'todo';
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     headers: {
@@ -74,7 +93,7 @@ function normalizeTask(task: any): Task {
     title: task.title,
     description: task.description ?? null,
     due_at: task.due_at ?? null,
-    status: task.status,
+    status: normalizeTaskStatus(task.status),
     project: task.project ?? null,
     tags: Array.isArray(task.tags) ? task.tags : [],
     source: task.source,
@@ -167,13 +186,16 @@ export const api = {
     const response = await request<any>('/api/dashboard/board');
     return {
       groups: Array.isArray(response.groups)
-        ? response.groups.map((group: any) => ({
-            key: group.status,
-            status: group.status,
-            tone: group.status,
-            title: boardTitles[group.status as TaskStatus] || group.status,
-            tasks: Array.isArray(group.tasks) ? group.tasks.map(normalizeTask) : [],
-          }))
+        ? response.groups.map((group: any) => {
+            const status = normalizeTaskStatus(group.status);
+            return {
+              key: String(group.status ?? status),
+              status,
+              tone: status,
+              title: boardTitles[status] || String(group.status || status),
+              tasks: Array.isArray(group.tasks) ? group.tasks.map(normalizeTask) : [],
+            };
+          })
         : [],
     } satisfies DashboardBoard;
   },
