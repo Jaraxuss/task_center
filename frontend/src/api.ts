@@ -1,4 +1,5 @@
 import {
+  CreateTaskPayload,
   DashboardBoard,
   DashboardToday,
   DeferTaskPayload,
@@ -13,6 +14,7 @@ import {
   UpdateTaskPayload,
 } from './types';
 import { API_BASE_URL } from './config';
+import { normalizeTaskRecurrence } from './utils';
 
 const boardTitles: Record<TaskStatus, string> = {
   todo: '待办',
@@ -77,7 +79,7 @@ function toSearchParams(filters?: TaskFilters) {
   return query ? `?${query}` : '';
 }
 
-function normalizeEvent(event: Partial<TaskEvent> & { payload?: Record<string, unknown> }) : TaskEvent {
+function normalizeEvent(event: Partial<TaskEvent> & { payload?: Record<string, unknown> }): TaskEvent {
   return {
     id: Number(event.id),
     task_id: Number(event.task_id),
@@ -102,6 +104,7 @@ function normalizeTask(task: any): Task {
     completed_at: task.completed_at ?? null,
     canceled_at: task.canceled_at ?? null,
     deferred_to: task.deferred_to ?? null,
+    recurrence: normalizeTaskRecurrence(task.recurrence ?? task.recurrence_rule ?? task.repeat_rule),
     reminders: Array.isArray(task.reminders)
       ? task.reminders.map((reminder: any) => ({ ...reminder, id: Number(reminder.id), task_id: Number(reminder.task_id) }))
       : [],
@@ -114,6 +117,13 @@ export const api = {
   getHealth: () => request<{ status: string }>('/api/health'),
   getTasks: async (filters?: TaskFilters) => (await request<any[]>(`/api/tasks${toSearchParams(filters)}`)).map(normalizeTask),
   getTask: async (id: number) => normalizeTask(await request<any>(`/api/tasks/${id}`)),
+  createTask: async (payload: CreateTaskPayload) =>
+    normalizeTask(
+      await request<any>('/api/tasks', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+    ),
   updateTask: async (id: number, payload: UpdateTaskPayload) =>
     normalizeTask(
       await request<any>(`/api/tasks/${id}`, {

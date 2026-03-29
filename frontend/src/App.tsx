@@ -11,6 +11,7 @@ import {
   LoadingState,
   Panel,
   PlannedTaskGroups,
+  TaskComposerModal,
   TaskDetailModal,
   TaskList,
   ViewHero,
@@ -166,8 +167,10 @@ function App() {
   const [activeView, setActiveView] = useState<ViewMode>('today');
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
+  const [isComposerOpen, setIsComposerOpen] = useState(false);
   const [isDetailLoading, setIsDetailLoading] = useState(false);
   const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [isCreatingTask, setIsCreatingTask] = useState(false);
   const [theme, setTheme] = useLocalStorage<ThemeMode>('task-center-theme', 'light');
   const [timeFormat, setTimeFormat] = useLocalStorage<TimeFormatMode>('task-center-time-format', 'cn-short');
   const [todayPageSize, setTodayPageSize] = useLocalStorage<number>('task-center-today-page-size', 10);
@@ -345,6 +348,20 @@ function App() {
     }
   };
 
+  const createTask = async (payload: Parameters<typeof api.createTask>[0]) => {
+    setIsCreatingTask(true);
+    try {
+      const created = await api.createTask(payload);
+      setSelectedTask(created);
+      setIsComposerOpen(false);
+      setIsDetailOpen(true);
+      patchLoadedData(created);
+      await refreshLoadedViews();
+    } finally {
+      setIsCreatingTask(false);
+    }
+  };
+
   const renameProject = async (currentName: string, nextName: string) => {
     setRenamingProject(currentName);
     setBoardFeedback(null);
@@ -412,7 +429,9 @@ function App() {
     busyAction,
     isLoadingDetails: isDetailLoading,
     onComplete: (task: Task) => runTaskAction('complete', () => api.completeTask(task.id)),
+    onSaveBasics: (task: Task, payload: { title: string; description?: string | null; project?: string | null }) => runTaskAction('basic', () => api.updateTask(task.id, payload)),
     onSaveSchedule: (task: Task, payload: { due_at: string | null }) => runTaskAction('schedule', () => api.updateTask(task.id, payload)),
+    onSaveRecurrence: (task: Task, payload: { recurrence: Parameters<typeof api.updateTask>[1]['recurrence'] }) => runTaskAction('recurrence', () => api.updateTask(task.id, payload)),
     onDefer: (task: Task, payload: { deferred_to: string; note?: string }) => runTaskAction('defer', () => api.deferTask(task.id, { deferred_to: payload.deferred_to, reason: payload.note })),
     onCancel: (task: Task, note?: string) => runTaskAction('cancel', () => api.cancelTask(task.id, note)),
     onAddReminder: (task: Task, payload: { remind_at: string; channel: string; note?: string }) => runTaskAction('remind', () => api.addReminder(task.id, payload)),
@@ -564,7 +583,11 @@ function App() {
           />
 
           <section className="view-column">
-            <Panel title="按天查看" description="最近日期优先，每个日期下用统一宽度卡片排布。">
+            <Panel
+              title="按天查看"
+              description="最近日期优先，每个日期下用统一宽度卡片排布。"
+              actions={<button className="primary" onClick={() => setIsComposerOpen(true)}>新建任务</button>}
+            >
               <PlannedTaskGroups groups={today.data.planGroups} selectedTaskId={selectedTask?.id} onSelect={openTaskDetail} />
             </Panel>
           </section>
@@ -701,6 +724,7 @@ function App() {
           </div>
         </div>
       ) : null}
+      <TaskComposerModal open={isComposerOpen} onClose={() => setIsComposerOpen(false)} onSubmit={createTask} busy={isCreatingTask} />
       <TaskDetailModal {...detailProps} />
     </>
   );

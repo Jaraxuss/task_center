@@ -1,8 +1,10 @@
 import { FormEvent, ReactNode, useEffect, useMemo, useState } from 'react';
-import { PlanGroup, Task, TaskEvent, TaskGroup, TaskStatus } from './types';
+import { CreateTaskPayload, PlanGroup, Task, TaskEvent, TaskGroup, TaskRecurrencePayload, TaskStatus } from './types';
 import {
   formatDateTime,
   formatDateTimeInput,
+  formatTaskRecurrence,
+  getLocalTimeZone,
   getTaskSubtitle,
   getTaskStateSummary,
   statusMeta,
@@ -100,6 +102,79 @@ const statusOptions: Array<{ value: TaskStatus; label: string }> = [
 
 const BOARD_CONTENT_MAX_MIN = 20;
 const BOARD_CONTENT_MAX_LIMIT = 200;
+
+interface RecurrenceFormValue {
+  type: 'none' | 'monthly';
+  dayOfMonth: string;
+  timeOfDay: string;
+  timezone: string;
+}
+
+function createRecurrenceFormValue(task?: Pick<Task, 'due_at' | 'recurrence'> | null): RecurrenceFormValue {
+  const recurrence = task?.recurrence;
+  const dueAt = task?.due_at ? new Date(task.due_at) : null;
+  return {
+    type: recurrence?.type || 'none',
+    dayOfMonth: String(recurrence?.day_of_month || (dueAt ? dueAt.getDate() : '1')),
+    timeOfDay: recurrence?.time_of_day || (dueAt ? `${String(dueAt.getHours()).padStart(2, '0')}:${String(dueAt.getMinutes()).padStart(2, '0')}` : '09:00'),
+    timezone: recurrence?.timezone || getLocalTimeZone(),
+  };
+}
+
+function buildRecurrencePayload(value: RecurrenceFormValue): TaskRecurrencePayload | null {
+  if (value.type === 'none') return null;
+  const day = Number(value.dayOfMonth);
+  return {
+    type: 'monthly',
+    day_of_month: Number.isFinite(day) && day >= 1 && day <= 31 ? day : null,
+    time_of_day: value.timeOfDay || null,
+    timezone: value.timezone || getLocalTimeZone(),
+  };
+}
+
+function RecurrenceFieldset({
+  value,
+  onChange,
+  compactHint,
+}: {
+  value: RecurrenceFormValue;
+  onChange: (next: RecurrenceFormValue) => void;
+  compactHint?: string;
+}) {
+  return (
+    <div className="recurrence-stack">
+      <label className="field">
+        <span className="label-caption">周期性提醒</span>
+        <select value={value.type} onChange={(e) => onChange({ ...value, type: e.target.value as RecurrenceFormValue['type'] })}>
+          <option value="none">无重复</option>
+          <option value="monthly">每月固定某日某时</option>
+        </select>
+      </label>
+
+      {value.type === 'monthly' ? (
+        <div className="recurrence-grid">
+          <label className="field">
+            <span className="label-caption">每月日期</span>
+            <input type="number" min={1} max={31} value={value.dayOfMonth} onChange={(e) => onChange({ ...value, dayOfMonth: e.target.value })} placeholder="例如 15" />
+          </label>
+          <label className="field">
+            <span className="label-caption">提醒时间</span>
+            <input type="time" value={value.timeOfDay} onChange={(e) => onChange({ ...value, timeOfDay: e.target.value })} />
+          </label>
+          <label className="field">
+            <span className="label-caption">时区</span>
+            <input value={value.timezone} onChange={(e) => onChange({ ...value, timezone: e.target.value })} placeholder="Asia/Shanghai" />
+          </label>
+        </div>
+      ) : null}
+
+      <div className="subtle-note">
+        {value.type === 'monthly' ? `当前规则：${formatTaskRecurrence(buildRecurrencePayload(value) as any)}` : '当前规则：不重复'}
+        {compactHint ? <span className="muted"> · {compactHint}</span> : null}
+      </div>
+    </div>
+  );
+}
 
 export function Layout({
   activeView,
@@ -355,9 +430,8 @@ function formatPlanTaskTime(task: Task) {
 }
 
 function formatPlanTaskMeta(task: Task) {
-  if (task.deferred_to) return '已重新安排';
-  if (task.due_at) return '按截止时间排序';
-  return '尚未设置具体时间';
+  const base = task.deferred_to ? '已重新安排' : task.due_at ? '按截止时间排序' : '尚未设置具体时间';
+  return task.recurrence ? `${base} · ${formatTaskRecurrence(task.recurrence)}` : base;
 }
 
 export function PlannedTaskGroups({ groups, selectedTaskId, onSelect }: { groups: PlanGroup[]; selectedTaskId?: number; onSelect: (task: Task) => void }) {
@@ -874,7 +948,9 @@ export function TaskDetailModal({
   busyAction,
   isLoadingDetails,
   onComplete,
+  onSaveBasics,
   onSaveSchedule,
+  onSaveRecurrence,
   onDefer,
   onCancel,
   onAddReminder,
@@ -885,12 +961,18 @@ export function TaskDetailModal({
   busyAction?: string | null;
   isLoadingDetails?: boolean;
   onComplete: (task: Task) => void;
+  onSaveBasics: (task: Task, payload: { title: string; description?: string | null; project?: string | null }) => void;
   onSaveSchedule: (task: Task, payload: { due_at: string | null }) => void;
+  onSaveRecurrence: (task: Task, payload: { recurrence: TaskRecurrencePayload | null }) => void;
   onDefer: (task: Task, payload: { deferred_to: string; note?: string }) => void;
   onCancel: (task: Task, note?: string) => void;
   onAddReminder: (task: Task, payload: { remind_at: string; channel: string; note?: string }) => void;
 }) {
+  const [titleValue, setTitleValue] = useState('');
+  const [descriptionValue, setDescriptionValue] = useState('');
+  const [projectValue, setProjectValue] = useState('');
   const [scheduleValue, setScheduleValue] = useState('');
+  const [recurrenceValue, setRecurrenceValue] = useState<RecurrenceFormValue>(createRecurrenceFormValue(null));
   const [deferValue, setDeferValue] = useState('');
   const [deferNote, setDeferNote] = useState('');
   const [remindAt, setRemindAt] = useState('');
@@ -901,7 +983,11 @@ export function TaskDetailModal({
   const recentEvents = useMemo(() => (task ? summarizeEvents(task) : []), [task]);
 
   useEffect(() => {
+    setTitleValue(task?.title || '');
+    setDescriptionValue(task?.description || '');
+    setProjectValue(task?.project || '');
     setScheduleValue(formatDateTimeInput(task?.due_at));
+    setRecurrenceValue(createRecurrenceFormValue(task));
     setDeferValue('');
     setDeferNote('');
     setRemindAt('');
@@ -912,9 +998,25 @@ export function TaskDetailModal({
 
   if (!open || !task) return null;
 
+  const submitBasics = (e: FormEvent) => {
+    e.preventDefault();
+    const nextTitle = titleValue.trim();
+    if (!nextTitle) return;
+    onSaveBasics(task, {
+      title: nextTitle,
+      description: descriptionValue.trim() || null,
+      project: projectValue.trim() || null,
+    });
+  };
+
   const submitSchedule = (e: FormEvent) => {
     e.preventDefault();
     onSaveSchedule(task, { due_at: toIsoStringFromInput(scheduleValue) });
+  };
+
+  const submitRecurrence = (e: FormEvent) => {
+    e.preventDefault();
+    onSaveRecurrence(task, { recurrence: buildRecurrencePayload(recurrenceValue) });
   };
 
   const submitDefer = (e: FormEvent) => {
@@ -947,7 +1049,7 @@ export function TaskDetailModal({
       <div className="detail-overview-strip compact-overview">
         <MetaItem label="项目" value={task.project || '未设置'} />
         <MetaItem label="当前时间" value={task.due_at ? formatDateTime(task.due_at) : '未设置'} />
-        <MetaItem label="来源" value={task.source || 'web'} />
+        <MetaItem label="周期规则" value={formatTaskRecurrence(task.recurrence)} />
         <MetaItem label="更新时间" value={formatDateTime(task.updated_at)} />
       </div>
 
@@ -980,10 +1082,24 @@ export function TaskDetailModal({
               <span className="label-caption">Actions</span>
             </div>
             <div className="detail-actions-stack">
+              <form className="subcard action-card" onSubmit={submitBasics}>
+                <h5>编辑基础信息</h5>
+                <input value={titleValue} onChange={(e) => setTitleValue(e.target.value)} placeholder="任务标题" />
+                <input value={projectValue} onChange={(e) => setProjectValue(e.target.value)} placeholder="项目（可选）" />
+                <textarea rows={3} placeholder="任务描述（可选）" value={descriptionValue} onChange={(e) => setDescriptionValue(e.target.value)} />
+                <button type="submit" disabled={busyAction === 'basic'}>{busyAction === 'basic' ? '保存中…' : '保存信息'}</button>
+              </form>
+
               <form className="subcard action-card" onSubmit={submitSchedule}>
                 <h5>改时间</h5>
                 <input type="datetime-local" value={scheduleValue} onChange={(e) => setScheduleValue(e.target.value)} />
                 <button type="submit" disabled={busyAction === 'schedule'}>{busyAction === 'schedule' ? '保存中…' : '保存时间'}</button>
+              </form>
+
+              <form className="subcard action-card" onSubmit={submitRecurrence}>
+                <h5>周期性提醒</h5>
+                <RecurrenceFieldset value={recurrenceValue} onChange={setRecurrenceValue} compactHint="先支持无重复 / 每月固定某日某时" />
+                <button type="submit" disabled={busyAction === 'recurrence'}>{busyAction === 'recurrence' ? '保存中…' : '保存周期'}</button>
               </form>
 
               <form className="subcard action-card" onSubmit={submitDefer}>
@@ -1027,13 +1143,18 @@ export function TaskDetailModal({
               <span className="label-caption">Reminders</span>
             </div>
             <div className="stack-list">
+              <div className="subcard inline recurring-summary-card">
+                <strong>{formatTaskRecurrence(task.recurrence)}</strong>
+                <span className="muted">周期性提醒规则</span>
+                <span>{task.recurrence ? '当前任务会按固定月度规则继续生成 / 触发提醒。' : '当前任务没有开启周期性提醒。'}</span>
+              </div>
               {task.reminders?.length ? task.reminders.map((reminder) => (
                 <div className="subcard inline" key={reminder.id}>
                   <strong>{formatDateTime(reminder.remind_at)}</strong>
                   <span className="muted">{reminder.channel} · {reminder.status}</span>
                   <span>{reminder.note || '无备注'}</span>
                 </div>
-              )) : <EmptyState title="暂无提醒" description="现在没有提醒。" compact />}
+              )) : <EmptyState title="暂无单次提醒" description="现在没有额外的一次性提醒。" compact />}
             </div>
           </div>
 
@@ -1103,6 +1224,95 @@ function EventRow({ event }: { event: TaskEvent }) {
 function StatusBadge({ status }: { status: Task['status'] }) {
   const meta = statusMeta[status] || statusMeta.todo;
   return <span className={`status-badge ${meta.tone}`}>{meta.label}</span>;
+}
+
+export function TaskComposerModal({
+  open,
+  onClose,
+  onSubmit,
+  busy = false,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onSubmit: (payload: CreateTaskPayload) => void;
+  busy?: boolean;
+}) {
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [project, setProject] = useState('');
+  const [dueAt, setDueAt] = useState('');
+  const [recurrenceValue, setRecurrenceValue] = useState<RecurrenceFormValue>(createRecurrenceFormValue(null));
+
+  useEffect(() => {
+    if (!open) return;
+    setTitle('');
+    setDescription('');
+    setProject('');
+    setDueAt('');
+    setRecurrenceValue(createRecurrenceFormValue(null));
+  }, [open]);
+
+  if (!open) return null;
+
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    const nextTitle = title.trim();
+    if (!nextTitle) return;
+    onSubmit({
+      title: nextTitle,
+      description: description.trim() || null,
+      project: project.trim() || null,
+      due_at: toIsoStringFromInput(dueAt),
+      source: 'web',
+      recurrence: buildRecurrencePayload(recurrenceValue),
+    });
+  };
+
+  return (
+    <ModalFrame title="新建任务" onClose={onClose} width="min(720px, calc(100vw - 32px))" placement="center">
+      <form className="detail-modal-body" onSubmit={submit}>
+        <div className="detail-section card section-card">
+          <div className="detail-section-title">
+            <h4>任务基础信息</h4>
+            <span className="label-caption">Create</span>
+          </div>
+          <div className="detail-actions-stack">
+            <label className="field">
+              <span className="label-caption">标题</span>
+              <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="例如：月度经营复盘" required />
+            </label>
+            <label className="field">
+              <span className="label-caption">项目</span>
+              <input value={project} onChange={(e) => setProject(e.target.value)} placeholder="项目名（可选）" />
+            </label>
+            <label className="field">
+              <span className="label-caption">时间</span>
+              <input type="datetime-local" value={dueAt} onChange={(e) => setDueAt(e.target.value)} />
+            </label>
+            <label className="field">
+              <span className="label-caption">描述</span>
+              <textarea rows={4} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="补充上下文（可选）" />
+            </label>
+          </div>
+        </div>
+
+        <div className="detail-section card section-card">
+          <div className="detail-section-title">
+            <h4>周期性提醒</h4>
+            <span className="label-caption">Recurring</span>
+          </div>
+          <RecurrenceFieldset value={recurrenceValue} onChange={setRecurrenceValue} compactHint="目前前端优先支持每月固定某日某时" />
+        </div>
+
+        <div className="detail-modal-actions footer-actions">
+          <button type="button" onClick={onClose}>取消</button>
+          <button className="primary" type="submit" disabled={busy}>
+            {busy ? '创建中…' : '创建任务'}
+          </button>
+        </div>
+      </form>
+    </ModalFrame>
+  );
 }
 
 export function EmptyState({ title, description, compact = false }: { title: string; description: string; compact?: boolean }) {

@@ -1,4 +1,4 @@
-import { Task, TaskStatus } from './types';
+import { Task, TaskRecurrence, TaskStatus } from './types';
 
 export const statusMeta: Record<TaskStatus, { label: string; tone: string }> = {
   todo: { label: '待办', tone: 'slate' },
@@ -20,6 +20,10 @@ export function getTimeFormatMode(): TimeFormatMode {
   if (typeof document === 'undefined') return 'cn-short';
   const value = document.documentElement.dataset.timeFormat as TimeFormatMode | undefined;
   return value && value in timeFormatOptions ? value : 'cn-short';
+}
+
+export function getLocalTimeZone() {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai';
 }
 
 export function formatDateTime(value?: string | null) {
@@ -48,8 +52,48 @@ export function toIsoStringFromInput(value: string) {
   return value ? new Date(value).toISOString() : null;
 }
 
+function normalizeTimeOfDay(value?: string | null) {
+  if (!value) return null;
+  const matched = value.match(/^(\d{1,2}):(\d{2})/);
+  if (!matched) return value;
+  return `${matched[1].padStart(2, '0')}:${matched[2]}`;
+}
+
+export function normalizeTaskRecurrence(value: any): TaskRecurrence | null {
+  if (!value) return null;
+  const rawType = String(value.type || value.kind || value.frequency || '').toLowerCase();
+  if (!rawType || rawType === 'none' || rawType === 'once' || rawType === 'single') return null;
+
+  if (rawType === 'monthly' || rawType === 'monthly_fixed_day' || rawType === 'monthly_fixed') {
+    const dayOfMonth = Number(value.day_of_month ?? value.dayOfMonth ?? value.month_day ?? value.day);
+    return {
+      type: 'monthly',
+      day_of_month: Number.isFinite(dayOfMonth) && dayOfMonth > 0 ? dayOfMonth : null,
+      time_of_day: normalizeTimeOfDay(value.time_of_day ?? value.timeOfDay ?? value.time ?? value.at),
+      timezone: value.timezone || value.tz || null,
+    };
+  }
+
+  return {
+    type: 'monthly',
+    day_of_month: Number(value.day_of_month ?? value.dayOfMonth) || null,
+    time_of_day: normalizeTimeOfDay(value.time_of_day ?? value.timeOfDay ?? value.time ?? value.at),
+    timezone: value.timezone || value.tz || null,
+  };
+}
+
+export function formatTaskRecurrence(recurrence?: TaskRecurrence | null) {
+  if (!recurrence) return '不重复';
+  if (recurrence.type === 'monthly') {
+    const day = recurrence.day_of_month ? `${recurrence.day_of_month} 日` : '固定日';
+    const time = recurrence.time_of_day || '--:--';
+    return `每月 ${day} ${time}`;
+  }
+  return '不重复';
+}
+
 export function getTaskSubtitle(task: Task) {
-  const parts = [task.project, task.due_at ? `截止 ${formatDateTime(task.due_at)}` : undefined];
+  const parts = [task.project, task.due_at ? `截止 ${formatDateTime(task.due_at)}` : undefined, task.recurrence ? formatTaskRecurrence(task.recurrence) : undefined];
   return parts.filter(Boolean).join(' · ') || '无项目 / 无截止时间';
 }
 
@@ -58,6 +102,7 @@ export function getTaskStateSummary(task: Task) {
   if (task.status === 'deferred' && task.deferred_to) return `延期到 ${formatDateTime(task.deferred_to)}`;
   if (task.status === 'canceled' && task.canceled_at) return `取消于 ${formatDateTime(task.canceled_at)}`;
   if (task.due_at) return `截止 ${formatDateTime(task.due_at)}`;
+  if (task.recurrence) return formatTaskRecurrence(task.recurrence);
   return '待安排';
 }
 
