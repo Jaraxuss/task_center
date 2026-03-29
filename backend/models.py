@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import Enum
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from db import Base
@@ -34,6 +34,8 @@ class EventType(str, Enum):
     CANCELED = "canceled"
     PROJECT_RENAMED = "project_renamed"
     NIGHTLY_REVIEWED = "nightly_reviewed"
+    RECURRENCE_UPDATED = "recurrence_updated"
+    RECURRENCE_ADVANCED = "recurrence_advanced"
 
 
 class Task(Base):
@@ -57,6 +59,7 @@ class Task(Base):
 
     reminders: Mapped[list[Reminder]] = relationship("Reminder", back_populates="task", cascade="all, delete-orphan")
     events: Mapped[list[TaskEvent]] = relationship("TaskEvent", back_populates="task", cascade="all, delete-orphan")
+    recurrence: Mapped[TaskRecurrence | None] = relationship("TaskRecurrence", back_populates="task", cascade="all, delete-orphan", uselist=False)
 
 
 class Reminder(Base):
@@ -72,6 +75,29 @@ class Reminder(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), nullable=False, server_default=func.now(), onupdate=func.now())
 
     task: Mapped[Task] = relationship("Task", back_populates="reminders")
+
+
+class TaskRecurrence(Base):
+    __tablename__ = "task_recurrences"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    frequency: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    interval: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="UTC")
+    time_of_day: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    days_of_week_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    day_of_month: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    start_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True)
+    end_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True)
+    next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True, index=True)
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True)
+    reminder_offsets_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), nullable=False, server_default=func.now(), onupdate=func.now())
+
+    task: Mapped[Task] = relationship("Task", back_populates="recurrence")
 
 
 class TaskEvent(Base):

@@ -11,8 +11,9 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from config import get_settings
-from db import Base, SessionLocal, engine, get_db
-from models import EventType, Reminder, ReminderStatus, Task, TaskEvent, TaskStatus
+from db import Base, engine, get_db
+from models import EventType, Reminder, ReminderStatus, Task, TaskEvent, TaskRecurrence, TaskStatus
+from recurrence import compute_next_recurrence, normalize_days_of_week, normalize_time_of_day
 from schemas import (
     BoardSummary,
     DashboardPayload,
@@ -33,13 +34,15 @@ from schemas import (
     TaskDetail,
     TaskEventRead,
     TaskRead,
+    TaskRecurrenceRead,
+    TaskRecurrenceWrite,
     TaskUpdate,
     TodaySummary,
 )
 
 settings = get_settings()
 
-app = FastAPI(title="Task Center Backend", version="0.1.0")
+app = FastAPI(title="Task Center Backend", version="0.2.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -55,8 +58,52 @@ def on_startup() -> None:
     init_db()
 
 
+
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
+
+
+
+def recurrence_event_payload(recurrence: TaskRecurrence) -> dict[str, Any]:
+    return {
+        "enabled": recurrence.enabled,
+        "frequency": recurrence.frequency,
+        "interval": recurrence.interval,
+        "timezone": recurrence.timezone,
+        "time_of_day": recurrence.time_of_day,
+        "days_of_week": json.loads(recurrence.days_of_week_json or "[]"),
+        "day_of_month": recurrence.day_of_month,
+        "start_at": recurrence.start_at.isoformat() if recurrence.start_at else None,
+        "end_at": recurrence.end_at.isoformat() if recurrence.end_at else None,
+        "next_run_at": recurrence.next_run_at.isoformat() if recurrence.next_run_at else None,
+        "last_run_at": recurrence.last_run_at.isoformat() if recurrence.last_run_at else None,
+        "reminder_offsets_minutes": json.loads(recurrence.reminder_offsets_json or "[]"),
+    }
+
+
+
+def serialize_recurrence(recurrence: TaskRecurrence | None) -> TaskRecurrenceRead | None:
+    if recurrence is None:
+        return None
+    return TaskRecurrenceRead(
+        id=recurrence.id,
+        task_id=recurrence.task_id,
+        enabled=recurrence.enabled,
+        frequency=recurrence.frequency,
+        interval=recurrence.interval,
+        timezone=recurrence.timezone,
+        time_of_day=recurrence.time_of_day,
+        days_of_week=json.loads(recurrence.days_of_week_json or "[]"),
+        day_of_month=recurrence.day_of_month,
+        start_at=recurrence.start_at,
+        end_at=recurrence.end_at,
+        next_run_at=recurrence.next_run_at,
+        last_run_at=recurrence.last_run_at,
+        reminder_offsets_minutes=json.loads(recurrence.reminder_offsets_json or "[]"),
+        created_at=recurrence.created_at,
+        updated_at=recurrence.updated_at,
+    )
+
 
 
 def serialize_task(task: Task) -> TaskRead:
@@ -77,7 +124,9 @@ def serialize_task(task: Task) -> TaskRead:
         nightly_bucket=task.nightly_bucket,
         nightly_reviewed_at=task.nightly_reviewed_at,
         reminders=[ReminderRead.model_validate(reminder) for reminder in sorted(task.reminders, key=lambda r: r.remind_at)],
+        recurrence=serialize_recurrence(task.recurrence),
     )
+
 
 
 def serialize_event(event: TaskEvent) -> TaskEventRead:
@@ -90,6 +139,7 @@ def serialize_event(event: TaskEvent) -> TaskEventRead:
     )
 
 
+
 def add_event(db: Session, task: Task, event_type: str, payload: dict[str, Any] | None = None) -> None:
     db.add(
         TaskEvent(
@@ -100,20 +150,23 @@ def add_event(db: Session, task: Task, event_type: str, payload: dict[str, Any] 
     )
 
 
+
+def task_load_options():
+    return (selectinload(Task.reminders), selectinload(Task.events), selectinload(Task.recurrence))
+
+
+
 def get_task_or_404(db: Session, task_id: int) -> Task:
-    stmt = (
-        select(Task)
-        .where(Task.id == task_id)
-        .options(selectinload(Task.reminders), selectinload(Task.events))
-    )
+    stmt = select(Task).where(Task.id == task_id).options(*task_load_options())
     task = db.scalar(stmt)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     return task
 
 
+
 def query_tasks(db: Session, *, status: str | None = None, query: str | None = None):
-    stmt = select(Task).options(selectinload(Task.reminders), selectinload(Task.events))
+    stmt = select(Task).options(*task_load_options())
     if status:
         stmt = stmt.where(Task.status == status)
     if query:
@@ -122,14 +175,92 @@ def query_tasks(db: Session, *, status: str | None = None, query: str | None = N
     return stmt.order_by(Task.due_at.is_(None), Task.due_at.asc(), Task.created_at.desc())
 
 
+
 def day_range(target: date) -> tuple[datetime, datetime]:
     start = datetime.combine(target, time.min)
     end = start + timedelta(days=1)
     return start, end
 
 
+
 def task_schedule_at(task: Task) -> datetime | None:
     return task.deferred_to or task.due_at
+
+
+
+def recurrence_anchor(task: Task, payload: TaskRecurrenceWrite | None = None) -> datetime:
+    return (
+        (payload.start_at if payload else None)
+        or task.due_at
+        or (task.recurrence.next_run_at if task.recurrence and task.recurrence.next_run_at else None)
+        or datetime.utcnow().replace(microsecond=0)
+    )
+
+
+
+def compute_recurrence_next_run(task: Task, recurrence: TaskRecurrence, *, after_dt: datetime | None = None) -> datetime | None:
+    anchor = recurrence.start_at or task.due_at or recurrence.next_run_at or datetime.utcnow().replace(microsecond=0)
+    return compute_next_recurrence(
+        frequency=recurrence.frequency,
+        interval=recurrence.interval,
+        anchor_at=anchor,
+        after_dt=after_dt,
+        time_of_day=recurrence.time_of_day,
+        days_of_week=json.loads(recurrence.days_of_week_json or "[]"),
+        day_of_month=recurrence.day_of_month,
+        start_at=recurrence.start_at,
+        end_at=recurrence.end_at,
+    )
+
+
+
+def upsert_recurrence(db: Session, task: Task, payload: TaskRecurrenceWrite) -> TaskRecurrence:
+    recurrence = task.recurrence or TaskRecurrence(task_id=task.id)
+    recurrence.enabled = payload.enabled
+    recurrence.frequency = payload.frequency
+    recurrence.interval = payload.interval
+    recurrence.timezone = payload.timezone
+    recurrence.time_of_day = normalize_time_of_day(payload.time_of_day)
+    recurrence.days_of_week_json = json.dumps(normalize_days_of_week(payload.days_of_week), ensure_ascii=False)
+    recurrence.day_of_month = payload.day_of_month
+    recurrence.start_at = payload.start_at
+    recurrence.end_at = payload.end_at
+    recurrence.reminder_offsets_json = json.dumps(sorted({int(item) for item in payload.reminder_offsets_minutes}), ensure_ascii=False)
+
+    anchor = recurrence_anchor(task, payload)
+    recurrence.next_run_at = None if not payload.enabled else compute_next_recurrence(
+        frequency=payload.frequency,
+        interval=payload.interval,
+        anchor_at=anchor,
+        after_dt=datetime.utcnow().replace(microsecond=0),
+        time_of_day=payload.time_of_day,
+        days_of_week=payload.days_of_week,
+        day_of_month=payload.day_of_month,
+        start_at=payload.start_at,
+        end_at=payload.end_at,
+    )
+
+    if task.recurrence is None:
+        task.recurrence = recurrence
+    db.add(recurrence)
+    db.flush()
+
+    if recurrence.next_run_at:
+        task.due_at = recurrence.next_run_at
+        task.deferred_to = None
+        if task.status in {TaskStatus.DONE.value, TaskStatus.CANCELED.value}:
+            task.status = TaskStatus.TODO.value
+            task.completed_at = None
+            task.canceled_at = None
+    return recurrence
+
+
+
+def clear_recurrence(task: Task, db: Session) -> None:
+    if task.recurrence is not None:
+        db.delete(task.recurrence)
+        task.recurrence = None
+
 
 
 def build_plan_groups(db: Session) -> list[PlanGroup]:
@@ -139,7 +270,7 @@ def build_plan_groups(db: Session) -> list[PlanGroup]:
         db.scalars(
             select(Task)
             .where(Task.status.in_(not_started_statuses))
-            .options(selectinload(Task.reminders), selectinload(Task.events))
+            .options(*task_load_options())
             .order_by(schedule_at.is_(None), schedule_at.asc(), Task.created_at.asc())
         ).unique()
     )
@@ -171,6 +302,7 @@ def build_plan_groups(db: Session) -> list[PlanGroup]:
     return plan_groups
 
 
+
 def build_today_summary(db: Session, target: date | None = None) -> TodaySummary:
     target = target or date.today()
     start, end = day_range(target)
@@ -182,7 +314,7 @@ def build_today_summary(db: Session, target: date | None = None) -> TodaySummary
                 Task.deferred_to.between(start, end - timedelta(microseconds=1)),
             )
         )
-        .options(selectinload(Task.reminders), selectinload(Task.events))
+        .options(*task_load_options())
         .order_by(Task.due_at.is_(None), Task.due_at.asc(), Task.created_at.asc())
     )
     tasks = list(db.scalars(stmt).unique())
@@ -196,6 +328,7 @@ def build_today_summary(db: Session, target: date | None = None) -> TodaySummary
         completed_count=sum(1 for item in items if item.status == TaskStatus.DONE.value),
         plan_groups=build_plan_groups(db),
     )
+
 
 
 def build_board_summary(db: Session) -> BoardSummary:
@@ -213,6 +346,7 @@ def build_board_summary(db: Session) -> BoardSummary:
     return BoardSummary(groups=grouped)
 
 
+
 def build_history_summary(db: Session, *, target: date | None = None, status: str | None = None, query: str | None = None) -> HistorySummary:
     stmt = query_tasks(db, status=status, query=query)
     if target:
@@ -228,6 +362,7 @@ def build_history_summary(db: Session, *, target: date | None = None, status: st
     tasks = list(db.scalars(stmt).unique())
     items = [serialize_task(task) for task in tasks]
     return HistorySummary(tasks=items, total=len(items))
+
 
 
 def build_project_summaries(db: Session) -> list[ProjectSummary]:
@@ -284,11 +419,7 @@ def rename_project(payload: ProjectRenameRequest, db: Session = Depends(get_db))
         raise HTTPException(status_code=400, detail="Project name is unchanged")
 
     tasks = list(
-        db.scalars(
-            select(Task)
-            .where(Task.project == payload.old_name)
-            .options(selectinload(Task.reminders), selectinload(Task.events))
-        ).unique()
+        db.scalars(select(Task).where(Task.project == payload.old_name).options(*task_load_options())).unique()
     )
     if not tasks:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -345,6 +476,9 @@ def create_task(payload: TaskCreate, db: Session = Depends(get_db)) -> TaskDetai
                 status=ReminderStatus.SCHEDULED.value,
             )
         )
+    if payload.recurrence is not None:
+        recurrence = upsert_recurrence(db, task, payload.recurrence)
+        add_event(db, task, EventType.RECURRENCE_UPDATED.value, recurrence_event_payload(recurrence))
     add_event(db, task, EventType.CREATED.value, payload.model_dump(mode="json"))
     db.commit()
     db.refresh(task)
@@ -360,10 +494,18 @@ def update_task(task_id: int, payload: TaskUpdate, db: Session = Depends(get_db)
     before = serialize_task(task).model_dump(mode="json")
     if "status" in updates and updates["status"] not in {status.value for status in TaskStatus}:
         raise HTTPException(status_code=400, detail="Invalid status")
+    recurrence_payload = updates.pop("recurrence", None)
+    clear_recurrence_requested = bool(updates.pop("clear_recurrence", False))
     if "tags" in updates:
         task.tags_json = json.dumps(updates.pop("tags"), ensure_ascii=False)
     for field, value in updates.items():
         setattr(task, field, value)
+    if clear_recurrence_requested:
+        clear_recurrence(task, db)
+        add_event(db, task, EventType.RECURRENCE_UPDATED.value, {"cleared": True})
+    if recurrence_payload is not None:
+        recurrence = upsert_recurrence(db, task, TaskRecurrenceWrite.model_validate(recurrence_payload))
+        add_event(db, task, EventType.RECURRENCE_UPDATED.value, recurrence_event_payload(recurrence))
     if task.status != TaskStatus.DONE.value:
         task.completed_at = None
     if task.status != TaskStatus.CANCELED.value:
@@ -379,11 +521,41 @@ def update_task(task_id: int, payload: TaskUpdate, db: Session = Depends(get_db)
 def complete_task(task_id: int, payload: TaskActionComplete, db: Session = Depends(get_db)) -> TaskDetail:
     task = get_task_or_404(db, task_id)
     completed_at = payload.completed_at or datetime.utcnow()
-    task.status = TaskStatus.DONE.value
-    task.completed_at = completed_at
-    task.canceled_at = None
     add_event(db, task, EventType.COMPLETED.value, {"completed_at": completed_at.isoformat()})
-    add_event(db, task, EventType.STATUS_CHANGED.value, {"status": TaskStatus.DONE.value})
+
+    if task.recurrence and task.recurrence.enabled:
+        task.recurrence.last_run_at = completed_at
+        recurrence_boundary = max(completed_at, task.due_at or completed_at) + timedelta(seconds=1)
+        next_run_at = compute_recurrence_next_run(task, task.recurrence, after_dt=recurrence_boundary)
+        task.recurrence.next_run_at = next_run_at
+        if next_run_at is None:
+            task.status = TaskStatus.DONE.value
+            task.completed_at = completed_at
+            add_event(db, task, EventType.STATUS_CHANGED.value, {"status": TaskStatus.DONE.value})
+        else:
+            previous_due_at = task.due_at
+            task.status = TaskStatus.TODO.value
+            task.completed_at = None
+            task.canceled_at = None
+            task.deferred_to = None
+            task.due_at = next_run_at
+            add_event(
+                db,
+                task,
+                EventType.RECURRENCE_ADVANCED.value,
+                {
+                    "completed_at": completed_at.isoformat(),
+                    "previous_due_at": previous_due_at.isoformat() if previous_due_at else None,
+                    "next_run_at": next_run_at.isoformat(),
+                },
+            )
+            add_event(db, task, EventType.STATUS_CHANGED.value, {"status": TaskStatus.TODO.value})
+    else:
+        task.status = TaskStatus.DONE.value
+        task.completed_at = completed_at
+        task.canceled_at = None
+        add_event(db, task, EventType.STATUS_CHANGED.value, {"status": TaskStatus.DONE.value})
+
     db.commit()
     task = get_task_or_404(db, task_id)
     detail = serialize_task(task)
@@ -397,6 +569,8 @@ def defer_task(task_id: int, payload: TaskActionDefer, db: Session = Depends(get
     task.deferred_to = payload.deferred_to
     task.due_at = payload.due_at or payload.deferred_to
     task.completed_at = None
+    if task.recurrence and task.recurrence.enabled:
+        task.recurrence.next_run_at = task.due_at
     add_event(db, task, EventType.DEFERRED.value, payload.model_dump(mode="json"))
     add_event(db, task, EventType.STATUS_CHANGED.value, {"status": TaskStatus.DEFERRED.value})
     db.commit()
@@ -487,7 +661,7 @@ def nightly_review_placeholder(db: Session = Depends(get_db)) -> NightlyReviewPl
         )
     ) or 0
     return NightlyReviewPlaceholder(
-        note="22:00 晚间收口流程暂未实现自动执行，但已保留 nightly_bucket/nightly_reviewed_at 与 nightly_reviewed 事件类型供后续 cron/聊天指令接入。",
+        note="22:00 晚间收口流程暂未实现自动执行，但已保留 nightly_bucket/nightly_reviewed_at 与 nightly_reviewed 事件类型供后续 cron/聊天指令接入。重复任务已支持 recurrence 配置与下一次触发时间计算。",
         pending_candidates=pending_count,
     )
 

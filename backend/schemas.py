@@ -3,9 +3,10 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
-from models import EventType, ReminderStatus, TaskStatus
+from models import ReminderStatus, TaskStatus
+from recurrence import normalize_days_of_week, normalize_time_of_day, validate_recurrence_payload
 
 
 class ReminderCreate(BaseModel):
@@ -25,6 +26,64 @@ class ReminderRead(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class TaskRecurrenceBase(BaseModel):
+    enabled: bool = True
+    frequency: Literal["daily", "weekly", "monthly"]
+    interval: int = Field(default=1, ge=1, le=365)
+    timezone: str = Field(default="UTC", min_length=1, max_length=64)
+    time_of_day: str | None = Field(default=None, description="HH:MM or HH:MM:SS")
+    days_of_week: list[int] = Field(default_factory=list, description="ISO weekday numbers: 1=Mon ... 7=Sun")
+    day_of_month: int | None = Field(default=None, ge=1, le=31)
+    start_at: datetime | None = None
+    end_at: datetime | None = None
+    reminder_offsets_minutes: list[int] = Field(default_factory=list, description="Minutes before due time, e.g. [30, 1440]")
+
+    @field_validator("time_of_day", mode="before")
+    @classmethod
+    def normalize_time(cls, value: str | None) -> str | None:
+        return normalize_time_of_day(value)
+
+    @field_validator("days_of_week", mode="before")
+    @classmethod
+    def normalize_weekdays(cls, value: list[int] | None) -> list[int]:
+        return normalize_days_of_week(value)
+
+    @field_validator("reminder_offsets_minutes")
+    @classmethod
+    def normalize_offsets(cls, value: list[int]) -> list[int]:
+        normalized = sorted({int(item) for item in value})
+        for item in normalized:
+            if item < 0:
+                raise ValueError("reminder_offsets_minutes must be >= 0")
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_rule(self) -> "TaskRecurrenceBase":
+        validate_recurrence_payload(
+            frequency=self.frequency,
+            interval=self.interval,
+            day_of_month=self.day_of_month,
+            days_of_week=self.days_of_week,
+        )
+        if self.end_at and self.start_at and self.end_at < self.start_at:
+            raise ValueError("end_at must be later than start_at")
+        return self
+
+
+class TaskRecurrenceWrite(TaskRecurrenceBase):
+    pass
+
+
+class TaskRecurrenceRead(TaskRecurrenceBase):
+    id: int
+    task_id: int
+    next_run_at: datetime | None
+    last_run_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
 
 
 def normalize_project_name(value: str | None) -> str | None:
@@ -50,6 +109,7 @@ class TaskBase(BaseModel):
 
 class TaskCreate(TaskBase):
     reminders: list[ReminderCreate] = Field(default_factory=list)
+    recurrence: TaskRecurrenceWrite | None = None
 
 
 class TaskUpdate(BaseModel):
@@ -60,6 +120,8 @@ class TaskUpdate(BaseModel):
     tags: list[str] | None = None
     source: str | None = None
     status: str | None = None
+    recurrence: TaskRecurrenceWrite | None = None
+    clear_recurrence: bool = False
 
     @field_validator("project", mode="before")
     @classmethod
@@ -107,6 +169,7 @@ class TaskRead(BaseModel):
     nightly_bucket: str | None
     nightly_reviewed_at: datetime | None
     reminders: list[ReminderRead] = Field(default_factory=list)
+    recurrence: TaskRecurrenceRead | None = None
 
 
 class TaskDetail(TaskRead):

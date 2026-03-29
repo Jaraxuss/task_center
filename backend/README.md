@@ -4,12 +4,14 @@
 
 ## 已实现范围
 - 任务（Task）/ 提醒（Reminder）/ 事件日志（TaskEvent）三类核心模型
+- 新增 **TaskRecurrence**：任务级周期规则（daily / weekly / monthly）
 - REST API：
   - 健康检查
   - 任务 CRUD
   - 任务完成 / 延期 / 取消
   - 新增提醒
   - 今日 / 看板 / 历史查询
+  - 通过 `POST /api/tasks` 与 `PATCH /api/tasks/{id}` 创建 / 更新周期配置
 - 为后续 **22:00 晚间收口** 预留字段与接口占位：
   - `tasks.nightly_bucket`
   - `tasks.nightly_reviewed_at`
@@ -23,6 +25,7 @@ backend/
 ├── db.py
 ├── main.py
 ├── models.py
+├── recurrence.py
 ├── requirements.txt
 ├── schemas.py
 ├── seed_demo.py
@@ -118,7 +121,7 @@ python seed_demo.py
 关键字段：
 - `title`：任务标题
 - `description`：详细描述
-- `due_at`：任务时间
+- `due_at`：当前这一次要执行的时间（对周期任务来说，表示“下一次发生时间”）
 - `status`：`todo | doing | done | deferred | canceled`
 - `project`：所属项目；当前直接存放在 `tasks.project` 中，项目改名也是批量更新该字段
 - `tags`：标签（API 输出为数组，库内以 JSON 字符串存储）
@@ -129,14 +132,61 @@ python seed_demo.py
 ### Reminder
 - 一个任务可挂多个提醒
 - 支持字段：`remind_at`、`channel`、`status`、`note`
+- 当前仍是“一次性 reminder 记录”；周期规则本身由 `TaskRecurrence` 保存
+
+### TaskRecurrence
+最小可用的周期配置表，按 **1 个任务对应 0 或 1 条周期规则** 设计：
+- `task_id`：唯一外键，指向 `tasks.id`
+- `enabled`：是否启用
+- `frequency`：`daily | weekly | monthly`
+- `interval`：步长，例如每 2 周 / 每 3 月
+- `timezone`：保留时区字段，当前 MVP 仍以 naive datetime 处理
+- `time_of_day`：规则执行时间，例如 `10:30:00`
+- `days_of_week_json`：周规则使用，ISO weekday（1=周一 ... 7=周日）
+- `day_of_month`：月规则使用，例如 25
+- `start_at` / `end_at`：规则生效起止
+- `next_run_at`：后端预计算出的下一次触发时间
+- `last_run_at`：最近一次完成后推进的时间
+- `reminder_offsets_json`：预留给后续调度器使用，例如 `[30, 1440]` 表示提前 30 分钟和 1 天提醒
+
+#### “每月 25 号 10:30” 的表示方式
+```json
+{
+  "recurrence": {
+    "enabled": true,
+    "frequency": "monthly",
+    "interval": 1,
+    "timezone": "Asia/Shanghai",
+    "day_of_month": 25,
+    "time_of_day": "10:30:00",
+    "days_of_week": [],
+    "start_at": "2026-03-25T10:30:00",
+    "end_at": null,
+    "reminder_offsets_minutes": [30]
+  }
+}
+```
 
 ### TaskEvent
-- 记录任务创建、更新、状态变化、提醒新增、延期、完成、取消等历史动作
+- 记录任务创建、更新、状态变化、提醒新增、延期、完成、取消、周期配置更新、周期推进等历史动作
 - `payload_json` 用于保留变更上下文，便于后续接聊天命令、定时任务、审计视图
+
+## 周期任务行为（当前实现）
+- 创建任务时可直接附带 `recurrence`
+- 查询任务详情 / 列表时会返回 `recurrence`
+- 更新任务时可：
+  - 直接传新的 `recurrence` 进行覆盖/upsert
+  - 传 `"clear_recurrence": true` 删除周期规则
+- 周期任务执行 `POST /api/tasks/{id}/complete` 时：
+  - 会记录一次 `completed` 事件
+  - 如果周期规则仍有效，则自动计算下一次 `next_run_at`
+  - `task.due_at` 会推进到下一次发生时间
+  - 任务状态会回到 `todo`，继续留在任务池中
+  - 如果已经没有下一次发生时间（比如超过 `end_at`），则落为普通 `done`
 
 ## 示例请求
 
-### 新建任务
+### 新建普通任务
 ```bash
 curl -X POST http://127.0.0.1:8000/api/tasks \
   -H 'Content-Type: application/json' \
@@ -154,6 +204,53 @@ curl -X POST http://127.0.0.1:8000/api/tasks \
         "note": "提前 40 分钟提醒"
       }
     ]
+  }'
+```
+
+### 新建“每月 25 号 10:30”周期任务
+```bash
+curl -X POST http://127.0.0.1:8000/api/tasks \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "title": "提交月报",
+    "project": "财务",
+    "source": "web",
+    "recurrence": {
+      "enabled": true,
+      "frequency": "monthly",
+      "interval": 1,
+      "timezone": "Asia/Shanghai",
+      "day_of_month": 25,
+      "time_of_day": "10:30",
+      "start_at": "2026-03-25T10:30:00",
+      "reminder_offsets_minutes": [30]
+    }
+  }'
+```
+
+### 更新周期规则
+```bash
+curl -X PATCH http://127.0.0.1:8000/api/tasks/1 \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "recurrence": {
+      "enabled": true,
+      "frequency": "weekly",
+      "interval": 1,
+      "timezone": "Asia/Shanghai",
+      "days_of_week": [1, 3, 5],
+      "time_of_day": "09:00",
+      "start_at": "2026-03-27T09:00:00"
+    }
+  }'
+```
+
+### 删除周期规则
+```bash
+curl -X PATCH http://127.0.0.1:8000/api/tasks/1 \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "clear_recurrence": true
   }'
 ```
 
@@ -182,23 +279,9 @@ curl -X PATCH http://127.0.0.1:8000/api/projects/rename \
   }'
 ```
 
-返回示例：
-```json
-{
-  "old_name": "常熟伊斯格",
-  "new_name": "常熟伊斯格-AI",
-  "updated_task_count": 3,
-  "project": {
-    "name": "常熟伊斯格-AI",
-    "task_count": 3,
-    "open_task_count": 2,
-    "done_task_count": 1
-  }
-}
-```
-
-## 后续建议
-- 增加 Alembic 迁移，替代当前 MVP 的自动建表
-- 接入定时器 / cron，驱动 reminder firing 与 nightly review
-- 为前端增加更细的筛选项（项目、标签、是否逾期）
+## 后续建议 / 还没做的部分
+- 接入真正的 scheduler / cron，驱动 reminder firing 与周期任务自动提醒
+- 现在的 `reminder_offsets_minutes` 还只是规则字段，尚未自动展开成下一批 Reminder 记录
+- 若要保留每次周期实例的独立完成历史，后续可以再引入 occurrence / run 表
 - 若进入多用户阶段，再引入 owner / permission 相关模型
+- 若项目继续发展，建议补 Alembic 迁移，替代当前 MVP 的自动建表
