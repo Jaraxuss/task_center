@@ -306,20 +306,22 @@ def build_plan_groups(db: Session) -> list[PlanGroup]:
 def build_today_summary(db: Session, target: date | None = None) -> TodaySummary:
     target = target or date.today()
     start, end = day_range(target)
+    open_statuses = {TaskStatus.TODO.value, TaskStatus.DOING.value, TaskStatus.DEFERRED.value}
+    schedule_at = func.coalesce(Task.deferred_to, Task.due_at)
     stmt = (
         select(Task)
         .where(
             or_(
                 Task.due_at.between(start, end - timedelta(microseconds=1)),
                 Task.deferred_to.between(start, end - timedelta(microseconds=1)),
+                (Task.status.in_(list(open_statuses))) & (schedule_at < start),
             )
         )
         .options(*task_load_options())
-        .order_by(Task.due_at.is_(None), Task.due_at.asc(), Task.created_at.asc())
+        .order_by(schedule_at.is_(None), schedule_at.asc(), Task.created_at.asc())
     )
     tasks = list(db.scalars(stmt).unique())
     items = [serialize_task(task) for task in tasks]
-    open_statuses = {TaskStatus.TODO.value, TaskStatus.DOING.value, TaskStatus.DEFERRED.value}
     return TodaySummary(
         date=target,
         tasks=items,
