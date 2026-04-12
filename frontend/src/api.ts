@@ -1,6 +1,7 @@
 import {
   CreateTaskPayload,
   DashboardBoard,
+  DashboardPlan,
   DashboardToday,
   DeferTaskPayload,
   HistoryResponse,
@@ -191,6 +192,22 @@ export const api = {
           }))
         : [],
     } satisfies DashboardToday;
+  },
+  getPlanDashboard: async () => {
+    const response = await request<any>('/api/dashboard/plan');
+    return {
+      date: response.date,
+      total: Number(response.total || 0),
+      open_count: Number(response.open_count || 0),
+      planGroups: Array.isArray(response.plan_groups)
+        ? response.plan_groups.map((group: any) => ({
+            key: String(group.key || group.group_date || group.title || 'plan-group'),
+            title: String(group.title || group.group_date || '未安排'),
+            group_date: group.group_date ?? null,
+            tasks: Array.isArray(group.tasks) ? group.tasks.map(normalizeTask) : [],
+          }))
+        : [],
+    } satisfies DashboardPlan;
   },
   getBoardDashboard: async () => {
     const response = await request<any>('/api/dashboard/board');

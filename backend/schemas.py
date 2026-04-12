@@ -215,6 +215,13 @@ class PlanGroup(BaseModel):
     tasks: list[TaskRead]
 
 
+class PlanSummary(BaseModel):
+    date: date
+    total: int
+    open_count: int
+    plan_groups: list[PlanGroup] = Field(default_factory=list)
+
+
 class TodaySummary(BaseModel):
     date: date
     tasks: list[TaskRead]

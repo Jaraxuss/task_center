@@ -16,7 +16,7 @@ import {
   TaskList,
   ViewHero,
 } from './components';
-import { DashboardBoard, DashboardToday, HistoryResponse, PlanGroup, ProjectSummary, Task, TaskGroup } from './types';
+import { DashboardBoard, DashboardPlan, DashboardToday, HistoryResponse, PlanGroup, ProjectSummary, Task, TaskGroup } from './types';
 import { groupTasksByProject, sortTasksByRecency, TimeFormatMode } from './utils';
 
 type ViewMode = 'today' | 'plan' | 'board' | 'history';
@@ -190,7 +190,8 @@ function App() {
   const [boardFeedback, setBoardFeedback] = useState<{ tone: 'success' | 'danger'; message: string } | null>(null);
   const themeTransitionTimers = useRef<number[]>([]);
 
-  const today = useAsyncData(() => api.getTodayDashboard(), [], activeView === 'today' || activeView === 'plan');
+  const today = useAsyncData(() => api.getTodayDashboard(), [], activeView === 'today');
+  const plan = useAsyncData(() => api.getPlanDashboard(), [], activeView === 'plan');
   const board = useAsyncData(() => api.getBoardDashboard(), [], activeView === 'board');
   const projects = useAsyncData(() => api.getProjects(), [], activeView === 'board');
   const history = useAsyncData(
@@ -248,7 +249,7 @@ function App() {
   useEffect(() => {
     const pool = [
       today.data?.tasks,
-      ...(today.data?.planGroups.map((group: PlanGroup) => group.tasks) || []),
+      ...(plan.data?.planGroups.map((group: PlanGroup) => group.tasks) || []),
       ...(board.data?.groups.map((group: TaskGroup) => group.tasks) || []),
       history.data?.items,
     ]
@@ -266,7 +267,7 @@ function App() {
         return { ...refreshed, reminders: current.reminders, events: current.events };
       });
     }
-  }, [today.data, board.data, history.data, selectedTask?.id]);
+  }, [today.data, plan.data, board.data, history.data, selectedTask?.id]);
 
   useEffect(() => {
     setTodayPage(1);
@@ -283,6 +284,7 @@ function App() {
   const refreshLoadedViews = async () => {
     await Promise.all([
       today.loaded ? today.reload() : Promise.resolve(null),
+      plan.loaded ? plan.reload() : Promise.resolve(null),
       board.loaded ? board.reload() : Promise.resolve(null),
       history.loaded ? history.reload() : Promise.resolve(null),
     ]);
@@ -511,10 +513,10 @@ function App() {
   }, [today.data]);
 
   const planSummaryHighlight = useMemo(() => {
-    if (!today.data) return '';
-    const totalPlanned = today.data.planGroups.reduce((sum: number, group: DashboardToday['planGroups'][number]) => sum + group.tasks.length, 0);
-    return `按 ${today.data.planGroups.length} 天分组，当前共 ${totalPlanned} 项待安排`;
-  }, [today.data]);
+    if (!plan.data) return '';
+    const totalPlanned = plan.data.planGroups.reduce((sum: number, group: DashboardPlan['planGroups'][number]) => sum + group.tasks.length, 0);
+    return `从明天开始按 ${plan.data.planGroups.length} 天分组，当前共 ${totalPlanned} 项未来事项`;
+  }, [plan.data]);
 
   const currentContent = useMemo(() => {
     if (activeView === 'today') {
@@ -564,31 +566,30 @@ function App() {
     }
 
     if (activeView === 'plan') {
-      if (today.loading && !today.data) return <LoadingState mode="list" />;
-      if (today.error || !today.data) return <ErrorState message={today.error || '计划数据为空'} onRetry={today.reload} />;
-      const plannedTaskCount = today.data.planGroups.reduce((sum: number, group: DashboardToday['planGroups'][number]) => sum + group.tasks.length, 0);
+      if (plan.loading && !plan.data) return <LoadingState mode="list" />;
+      if (plan.error || !plan.data) return <ErrorState message={plan.error || '计划数据为空'} onRetry={plan.reload} />;
+      const plannedTaskCount = plan.data.planGroups.reduce((sum: number, group: DashboardPlan['planGroups'][number]) => sum + group.tasks.length, 0);
       return (
         <div className="content-stack">
           <ViewHero
             eyebrow={viewMeta.plan.eyebrow}
             title={viewMeta.plan.title}
-            description="把接下来几天的任务拆成更清爽的卡片视图，桌面端默认 3 列。"
+            description="只展示从明天开始的未来事项，按日期分组查看。"
             highlight={planSummaryHighlight}
             metrics={[
-              { label: '日期组', value: String(today.data.planGroups.length), tone: 'brand' },
-              { label: '计划任务', value: String(plannedTaskCount), tone: 'default' },
-              { label: '未完成', value: String(today.data.summary.open), tone: 'default' },
-              { label: '逾期', value: String(today.data.summary.overdue), tone: today.data.summary.overdue ? 'danger' : 'success' },
+              { label: '日期组', value: String(plan.data.planGroups.length), tone: 'brand' },
+              { label: '未来事项', value: String(plannedTaskCount), tone: 'default' },
+              { label: '开放任务', value: String(plan.data.open_count), tone: 'default' },
             ]}
           />
 
           <section className="view-column">
             <Panel
               title="按天查看"
-              description="最近日期优先，每个日期下用统一宽度卡片排布。"
+              description="从明天开始，最近日期优先。"
               actions={<button className="primary" onClick={() => setIsComposerOpen(true)}>新建任务</button>}
             >
-              <PlannedTaskGroups groups={today.data.planGroups} selectedTaskId={selectedTask?.id} onSelect={openTaskDetail} />
+              <PlannedTaskGroups groups={plan.data.planGroups} selectedTaskId={selectedTask?.id} onSelect={openTaskDetail} />
             </Panel>
           </section>
         </div>
@@ -677,6 +678,7 @@ function App() {
   }, [
     activeView,
     today,
+    plan,
     board,
     history,
     selectedTask,

@@ -21,6 +21,7 @@ from schemas import (
     HistorySummary,
     NightlyReviewPlaceholder,
     PlanGroup,
+    PlanSummary,
     ProjectRenameRequest,
     ProjectRenameResponse,
     ProjectSummary,
@@ -263,43 +264,57 @@ def clear_recurrence(task: Task, db: Session) -> None:
 
 
 
-def build_plan_groups(db: Session) -> list[PlanGroup]:
+def build_plan_groups(db: Session, target: date | None = None) -> list[PlanGroup]:
+    target = target or date.today()
+    _, future_start = day_range(target)
     not_started_statuses = [TaskStatus.TODO.value, TaskStatus.DEFERRED.value]
     schedule_at = func.coalesce(Task.deferred_to, Task.due_at)
     tasks = list(
         db.scalars(
             select(Task)
-            .where(Task.status.in_(not_started_statuses))
+            .where(Task.status.in_(not_started_statuses), schedule_at >= future_start)
             .options(*task_load_options())
-            .order_by(schedule_at.is_(None), schedule_at.asc(), Task.created_at.asc())
+            .order_by(schedule_at.asc(), Task.created_at.asc())
         ).unique()
     )
 
-    grouped: dict[date | None, list[Task]] = {}
+    grouped: dict[date, list[Task]] = {}
     for task in tasks:
         schedule_value = task_schedule_at(task)
-        grouped.setdefault(schedule_value.date() if schedule_value else None, []).append(task)
+        if schedule_value is None:
+            continue
+        grouped.setdefault(schedule_value.date(), []).append(task)
 
-    sorted_dates = sorted(group_date for group_date in grouped.keys() if group_date is not None)
-    if None in grouped:
-        sorted_dates.append(None)
+    sorted_dates = sorted(grouped.keys())
 
     plan_groups: list[PlanGroup] = []
     for group_date in sorted_dates:
         group_tasks = sorted(
             grouped[group_date],
-            key=lambda task: (task_schedule_at(task) is None, task_schedule_at(task) or datetime.max, task.created_at),
+            key=lambda task: (task_schedule_at(task) or datetime.max, task.created_at),
         )
         plan_groups.append(
             PlanGroup(
-                key=group_date.isoformat() if group_date else "unscheduled",
-                title=group_date.isoformat() if group_date else "未安排",
+                key=group_date.isoformat(),
+                title=group_date.isoformat(),
                 group_date=group_date,
                 tasks=[serialize_task(task) for task in group_tasks],
             )
         )
 
     return plan_groups
+
+
+def build_plan_summary(db: Session, target: date | None = None) -> PlanSummary:
+    target = target or date.today()
+    plan_groups = build_plan_groups(db, target)
+    total = sum(len(group.tasks) for group in plan_groups)
+    return PlanSummary(
+        date=target,
+        total=total,
+        open_count=total,
+        plan_groups=plan_groups,
+    )
 
 
 
@@ -628,6 +643,11 @@ def history(
 @app.get("/api/dashboard/today", response_model=TodaySummary)
 def dashboard_today(db: Session = Depends(get_db)) -> TodaySummary:
     return build_today_summary(db)
+
+
+@app.get("/api/dashboard/plan", response_model=PlanSummary)
+def dashboard_plan(db: Session = Depends(get_db)) -> PlanSummary:
+    return build_plan_summary(db)
 
 
 @app.get("/api/dashboard/board", response_model=BoardSummary)
