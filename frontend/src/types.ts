@@ -50,6 +50,7 @@ export interface Task {
   created_at: string;
   updated_at: string;
   completed_at?: string | null;
+  completion_note?: string | null;
   canceled_at?: string | null;
   deferred_to?: string | null;
   recurrence?: TaskRecurrence | null;
@@ -148,6 +149,11 @@ export interface UpdateTaskPayload {
   project?: string | null;
   tags?: string[];
   recurrence?: TaskRecurrencePayload | null;
+}
+
+export interface CompleteTaskPayload {
+  completed_at?: string | null;
+  note?: string;
 }
 
 export interface DeferTaskPayload {

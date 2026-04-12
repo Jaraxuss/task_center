@@ -131,6 +131,15 @@ class TaskUpdate(BaseModel):
 
 class TaskActionComplete(BaseModel):
     completed_at: datetime | None = None
+    note: str | None = None
+
+    @field_validator("note", mode="before")
+    @classmethod
+    def normalize_note(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
 
 
 class TaskActionCancel(BaseModel):
@@ -164,6 +173,7 @@ class TaskRead(BaseModel):
     created_at: datetime
     updated_at: datetime
     completed_at: datetime | None
+    completion_note: str | None
     canceled_at: datetime | None
     deferred_to: datetime | None
     nightly_bucket: str | None

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Any
@@ -62,6 +63,23 @@ def on_startup() -> None:
 
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
+    ensure_schema_compatibility()
+
+
+def ensure_schema_compatibility() -> None:
+    if not DB_PATH.exists():
+        return
+
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        cur = conn.cursor()
+        cur.execute("PRAGMA table_info(tasks)")
+        existing_columns = {row[1] for row in cur.fetchall()}
+        if "completion_note" not in existing_columns:
+            cur.execute("ALTER TABLE tasks ADD COLUMN completion_note TEXT")
+            conn.commit()
+    finally:
+        conn.close()
 
 
 
@@ -120,6 +138,7 @@ def serialize_task(task: Task) -> TaskRead:
         created_at=task.created_at,
         updated_at=task.updated_at,
         completed_at=task.completed_at,
+        completion_note=task.completion_note,
         canceled_at=task.canceled_at,
         deferred_to=task.deferred_to,
         nightly_bucket=task.nightly_bucket,
@@ -252,6 +271,7 @@ def upsert_recurrence(db: Session, task: Task, payload: TaskRecurrenceWrite) -> 
         if task.status in {TaskStatus.DONE.value, TaskStatus.CANCELED.value}:
             task.status = TaskStatus.TODO.value
             task.completed_at = None
+            task.completion_note = None
             task.canceled_at = None
     return recurrence
 
@@ -525,6 +545,7 @@ def update_task(task_id: int, payload: TaskUpdate, db: Session = Depends(get_db)
         add_event(db, task, EventType.RECURRENCE_UPDATED.value, recurrence_event_payload(recurrence))
     if task.status != TaskStatus.DONE.value:
         task.completed_at = None
+        task.completion_note = None
     if task.status != TaskStatus.CANCELED.value:
         task.canceled_at = None
     add_event(db, task, EventType.UPDATED.value, {"before": before, "after": payload.model_dump(mode="json", exclude_unset=True)})
@@ -538,7 +559,8 @@ def update_task(task_id: int, payload: TaskUpdate, db: Session = Depends(get_db)
 def complete_task(task_id: int, payload: TaskActionComplete, db: Session = Depends(get_db)) -> TaskDetail:
     task = get_task_or_404(db, task_id)
     completed_at = payload.completed_at or datetime.utcnow()
-    add_event(db, task, EventType.COMPLETED.value, {"completed_at": completed_at.isoformat()})
+    completion_note = payload.note
+    add_event(db, task, EventType.COMPLETED.value, {"completed_at": completed_at.isoformat(), "note": completion_note})
 
     if task.recurrence and task.recurrence.enabled:
         task.recurrence.last_run_at = completed_at
@@ -548,11 +570,13 @@ def complete_task(task_id: int, payload: TaskActionComplete, db: Session = Depen
         if next_run_at is None:
             task.status = TaskStatus.DONE.value
             task.completed_at = completed_at
+            task.completion_note = completion_note
             add_event(db, task, EventType.STATUS_CHANGED.value, {"status": TaskStatus.DONE.value})
         else:
             previous_due_at = task.due_at
             task.status = TaskStatus.TODO.value
             task.completed_at = None
+            task.completion_note = None
             task.canceled_at = None
             task.deferred_to = None
             task.due_at = next_run_at
@@ -562,6 +586,7 @@ def complete_task(task_id: int, payload: TaskActionComplete, db: Session = Depen
                 EventType.RECURRENCE_ADVANCED.value,
                 {
                     "completed_at": completed_at.isoformat(),
+                    "note": completion_note,
                     "previous_due_at": previous_due_at.isoformat() if previous_due_at else None,
                     "next_run_at": next_run_at.isoformat(),
                 },
@@ -570,6 +595,7 @@ def complete_task(task_id: int, payload: TaskActionComplete, db: Session = Depen
     else:
         task.status = TaskStatus.DONE.value
         task.completed_at = completed_at
+        task.completion_note = completion_note
         task.canceled_at = None
         add_event(db, task, EventType.STATUS_CHANGED.value, {"status": TaskStatus.DONE.value})
 
@@ -586,6 +612,7 @@ def defer_task(task_id: int, payload: TaskActionDefer, db: Session = Depends(get
     task.deferred_to = payload.deferred_to
     task.due_at = payload.due_at or payload.deferred_to
     task.completed_at = None
+    task.completion_note = None
     if task.recurrence and task.recurrence.enabled:
         task.recurrence.next_run_at = task.due_at
     add_event(db, task, EventType.DEFERRED.value, payload.model_dump(mode="json"))
@@ -603,6 +630,7 @@ def cancel_task(task_id: int, payload: TaskActionCancel, db: Session = Depends(g
     task.status = TaskStatus.CANCELED.value
     task.canceled_at = canceled_at
     task.completed_at = None
+    task.completion_note = None
     add_event(db, task, EventType.CANCELED.value, {"canceled_at": canceled_at.isoformat(), "reason": payload.reason})
     add_event(db, task, EventType.STATUS_CHANGED.value, {"status": TaskStatus.CANCELED.value})
     db.commit()

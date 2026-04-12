@@ -1,4 +1,5 @@
 import {
+  CompleteTaskPayload,
   CreateTaskPayload,
   DashboardBoard,
   DashboardPlan,
@@ -103,6 +104,7 @@ function normalizeTask(task: any): Task {
     created_at: task.created_at,
     updated_at: task.updated_at,
     completed_at: task.completed_at ?? null,
+    completion_note: task.completion_note ?? null,
     canceled_at: task.canceled_at ?? null,
     deferred_to: task.deferred_to ?? null,
     recurrence: normalizeTaskRecurrence(task.recurrence ?? task.recurrence_rule ?? task.repeat_rule),
@@ -132,11 +134,11 @@ export const api = {
         body: JSON.stringify(payload),
       }),
     ),
-  completeTask: async (id: number) =>
+  completeTask: async (id: number, payload?: CompleteTaskPayload) =>
     normalizeTask(
       await request<any>(`/api/tasks/${id}/complete`, {
         method: 'POST',
-        body: JSON.stringify({}),
+        body: JSON.stringify(payload || {}),
       }),
     ),
   deferTask: async (id: number, payload: DeferTaskPayload) =>

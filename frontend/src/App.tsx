@@ -430,7 +430,7 @@ function App() {
     onClose: () => setIsDetailOpen(false),
     busyAction,
     isLoadingDetails: isDetailLoading,
-    onComplete: (task: Task) => runTaskAction('complete', () => api.completeTask(task.id)),
+    onComplete: (task: Task, payload?: { note?: string }) => runTaskAction('complete', () => api.completeTask(task.id, payload)),
     onSaveBasics: (task: Task, payload: { title: string; description?: string | null; project?: string | null }) => runTaskAction('basic', () => api.updateTask(task.id, payload)),
     onSaveSchedule: (task: Task, payload: { due_at: string | null }) => runTaskAction('schedule', () => api.updateTask(task.id, payload)),
     onSaveRecurrence: (task: Task, payload: { recurrence: Parameters<typeof api.updateTask>[1]['recurrence'] }) => runTaskAction('recurrence', () => api.updateTask(task.id, payload)),

@@ -960,7 +960,7 @@ export function TaskDetailModal({
   onClose: () => void;
   busyAction?: string | null;
   isLoadingDetails?: boolean;
-  onComplete: (task: Task) => void;
+  onComplete: (task: Task, payload?: { note?: string }) => void;
   onSaveBasics: (task: Task, payload: { title: string; description?: string | null; project?: string | null }) => void;
   onSaveSchedule: (task: Task, payload: { due_at: string | null }) => void;
   onSaveRecurrence: (task: Task, payload: { recurrence: TaskRecurrencePayload | null }) => void;
@@ -979,6 +979,7 @@ export function TaskDetailModal({
   const [channel, setChannel] = useState('web');
   const [reminderNote, setReminderNote] = useState('');
   const [cancelNote, setCancelNote] = useState('');
+  const [completeNote, setCompleteNote] = useState('');
 
   const recentEvents = useMemo(() => (task ? summarizeEvents(task) : []), [task]);
 
@@ -1023,6 +1024,11 @@ export function TaskDetailModal({
     e.preventDefault();
     if (!deferValue) return;
     onDefer(task, { deferred_to: new Date(deferValue).toISOString(), note: deferNote || undefined });
+  };
+
+  const submitComplete = (e: FormEvent) => {
+    e.preventDefault();
+    onComplete(task, { note: completeNote.trim() || undefined });
   };
 
   const submitReminder = (e: FormEvent) => {
@@ -1074,6 +1080,12 @@ export function TaskDetailModal({
               <MetaItem label="提醒数" value={String(task.reminders?.length || 0)} />
               <MetaItem label="事件数" value={String(task.events?.length || 0)} />
             </div>
+            {task.completion_note ? (
+              <div className="subcard inline">
+                <strong>最近一次跟进结果</strong>
+                <span>{task.completion_note}</span>
+              </div>
+            ) : null}
           </div>
 
           <div className="detail-section card section-card">
@@ -1107,6 +1119,12 @@ export function TaskDetailModal({
                 <input type="datetime-local" value={deferValue} onChange={(e) => setDeferValue(e.target.value)} />
                 <textarea rows={3} placeholder="延期说明（可选）" value={deferNote} onChange={(e) => setDeferNote(e.target.value)} />
                 <button type="submit" disabled={busyAction === 'defer'}>{busyAction === 'defer' ? '处理中…' : '确认延期'}</button>
+              </form>
+
+              <form className="subcard action-card" onSubmit={submitComplete}>
+                <h5>标记完成</h5>
+                <textarea rows={4} placeholder="跟进结果（可选）——比如使用情况、反馈、问题原因、下一步判断" value={completeNote} onChange={(e) => setCompleteNote(e.target.value)} />
+                <button type="submit" className="primary" disabled={busyAction === 'complete'}>{busyAction === 'complete' ? '处理中…' : '确认完成'}</button>
               </form>
 
               <form className="subcard action-card" onSubmit={submitReminder}>
@@ -1170,9 +1188,7 @@ export function TaskDetailModal({
         </div>
 
         <div className="detail-modal-actions footer-actions">
-          <button className="primary" disabled={busyAction === 'complete'} onClick={() => onComplete(task)}>
-            {busyAction === 'complete' ? '处理中…' : '标记完成'}
-          </button>
+          <span className="muted">支持在完成时顺手写一段跟进结果，后面回看和汇总更有意义。</span>
         </div>
       </div>
     </ModalFrame>
