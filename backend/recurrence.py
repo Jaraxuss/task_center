@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from calendar import monthrange
 from datetime import datetime, time, timedelta
+from zoneinfo import ZoneInfo
+
+from timeutils import APP_TIMEZONE, UTC, ensure_aware_datetime
 
 VALID_FREQUENCIES = {"daily", "weekly", "monthly"}
 
@@ -67,10 +70,10 @@ def add_months(year: int, month: int, months: int) -> tuple[int, int]:
 
 
 
-def candidate_monthly_datetime(year: int, month: int, day_of_month: int, candidate_time: time) -> datetime:
+def candidate_monthly_datetime(year: int, month: int, day_of_month: int, candidate_time: time, tz: ZoneInfo) -> datetime:
     max_day = monthrange(year, month)[1]
     day = min(day_of_month, max_day)
-    return datetime(year, month, day, candidate_time.hour, candidate_time.minute, candidate_time.second)
+    return datetime(year, month, day, candidate_time.hour, candidate_time.minute, candidate_time.second, tzinfo=tz)
 
 
 
@@ -85,6 +88,7 @@ def compute_next_recurrence(
     day_of_month: int | None = None,
     start_at: datetime | None = None,
     end_at: datetime | None = None,
+    timezone_name: str | None = None,
 ) -> datetime | None:
     validate_recurrence_payload(
         frequency=frequency,
@@ -93,18 +97,26 @@ def compute_next_recurrence(
         days_of_week=days_of_week,
     )
 
-    effective_anchor = start_at or anchor_at
+    tz = ZoneInfo(timezone_name) if timezone_name else APP_TIMEZONE
+    effective_anchor_utc = ensure_aware_datetime(start_at or anchor_at, assume_tz=tz)
+    boundary_utc = ensure_aware_datetime(after_dt or effective_anchor_utc, assume_tz=tz)
+    end_at_utc = ensure_aware_datetime(end_at, assume_tz=tz)
+    if effective_anchor_utc is None or boundary_utc is None:
+        raise ValueError("anchor_at is required")
+
+    effective_anchor = effective_anchor_utc.astimezone(tz)
+    boundary = max(boundary_utc.astimezone(tz), effective_anchor)
+    end_boundary = end_at_utc.astimezone(tz) if end_at_utc else None
     candidate_time = parse_time_of_day(time_of_day) or effective_anchor.time().replace(microsecond=0)
-    boundary = max(after_dt or effective_anchor, effective_anchor)
     normalized_days = normalize_days_of_week(days_of_week)
 
     if frequency == "daily":
-        current = datetime.combine(effective_anchor.date(), candidate_time)
+        current = datetime.combine(effective_anchor.date(), candidate_time, tzinfo=tz)
         while current < boundary:
             current += timedelta(days=interval)
-        if end_at and current > end_at:
+        if end_boundary and current > end_boundary:
             return None
-        return current
+        return current.astimezone(UTC)
 
     if frequency == "weekly":
         week_start = effective_anchor.date() - timedelta(days=effective_anchor.isoweekday() - 1)
@@ -112,22 +124,22 @@ def compute_next_recurrence(
         while True:
             current_week_start = week_start + timedelta(weeks=week_offset)
             for weekday in normalized_days:
-                current = datetime.combine(current_week_start + timedelta(days=weekday - 1), candidate_time)
+                current = datetime.combine(current_week_start + timedelta(days=weekday - 1), candidate_time, tzinfo=tz)
                 if current < effective_anchor:
                     continue
                 if current < boundary:
                     continue
-                if end_at and current > end_at:
+                if end_boundary and current > end_boundary:
                     return None
-                return current
+                return current.astimezone(UTC)
             week_offset += interval
 
     months_added = 0
     while True:
         year, month = add_months(effective_anchor.year, effective_anchor.month, months_added)
-        current = candidate_monthly_datetime(year, month, int(day_of_month), candidate_time)
+        current = candidate_monthly_datetime(year, month, int(day_of_month), candidate_time, tz)
         if current >= effective_anchor and current >= boundary:
-            if end_at and current > end_at:
+            if end_boundary and current > end_boundary:
                 return None
-            return current
+            return current.astimezone(UTC)
         months_added += interval

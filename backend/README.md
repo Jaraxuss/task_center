@@ -115,6 +115,12 @@ python seed_demo.py
 - `GET /api/history?date=YYYY-MM-DD&status=&q=`
 - `GET /api/nightly-review`
 
+## 时区约定（重要）
+- **数据库统一存 UTC aware 时间**，格式示例：`2026-04-08T01:30:00Z`
+- **API 统一返回 ISO 8601 UTC** 时间字符串
+- **前端展示与按日分组统一按 `Asia/Shanghai`**
+- 详细设计说明见：`../docs/TIMEZONE_DESIGN.md`
+
 ## 核心模型说明
 
 ### Task
@@ -140,7 +146,7 @@ python seed_demo.py
 - `enabled`：是否启用
 - `frequency`：`daily | weekly | monthly`
 - `interval`：步长，例如每 2 周 / 每 3 月
-- `timezone`：保留时区字段，当前 MVP 仍以 naive datetime 处理
+- `timezone`：重复规则的业务时区；当前默认按 `Asia/Shanghai` 解释用户输入，并统一换算后以 UTC aware 时间存储
 - `time_of_day`：规则执行时间，例如 `10:30:00`
 - `days_of_week_json`：周规则使用，ISO weekday（1=周一 ... 7=周日）
 - `day_of_month`：月规则使用，例如 25
@@ -160,7 +166,7 @@ python seed_demo.py
     "day_of_month": 25,
     "time_of_day": "10:30:00",
     "days_of_week": [],
-    "start_at": "2026-03-25T10:30:00",
+    "start_at": "2026-03-25T02:30:00Z",
     "end_at": null,
     "reminder_offsets_minutes": [30]
   }
@@ -222,7 +228,7 @@ curl -X POST http://127.0.0.1:8000/api/tasks \
       "timezone": "Asia/Shanghai",
       "day_of_month": 25,
       "time_of_day": "10:30",
-      "start_at": "2026-03-25T10:30:00",
+      "start_at": "2026-03-25T02:30:00Z",
       "reminder_offsets_minutes": [30]
     }
   }'
@@ -240,7 +246,7 @@ curl -X PATCH http://127.0.0.1:8000/api/tasks/1 \
       "timezone": "Asia/Shanghai",
       "days_of_week": [1, 3, 5],
       "time_of_day": "09:00",
-      "start_at": "2026-03-27T09:00:00"
+      "start_at": "2026-03-27T01:00:00Z"
     }
   }'
 ```

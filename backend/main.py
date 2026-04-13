@@ -8,13 +8,14 @@ from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from config import get_settings
 from db import Base, engine, get_db
 from models import EventType, Reminder, ReminderStatus, Task, TaskEvent, TaskRecurrence, TaskStatus
 from recurrence import compute_next_recurrence, normalize_days_of_week, normalize_time_of_day
+from timeutils import APP_TIMEZONE, UTC, local_date, local_day_bounds, now_local, now_utc, parse_datetime_string, to_storage_string
 from schemas import (
     BoardSummary,
     DashboardPayload,
@@ -53,6 +54,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 DB_PATH = Path(__file__).resolve().parent / "data" / "task_center.db"
+DATETIME_COLUMNS: dict[str, list[str]] = {
+    "tasks": ["due_at", "created_at", "updated_at", "completed_at", "canceled_at", "deferred_to", "nightly_reviewed_at"],
+    "reminders": ["remind_at", "created_at", "updated_at"],
+    "task_recurrences": ["start_at", "end_at", "next_run_at", "last_run_at", "created_at", "updated_at"],
+    "task_events": ["created_at"],
+}
 
 
 @app.on_event("startup")
@@ -64,6 +71,7 @@ def on_startup() -> None:
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
     ensure_schema_compatibility()
+    normalize_datetime_storage()
 
 
 def ensure_schema_compatibility() -> None:
@@ -78,6 +86,30 @@ def ensure_schema_compatibility() -> None:
         if "completion_note" not in existing_columns:
             cur.execute("ALTER TABLE tasks ADD COLUMN completion_note TEXT")
             conn.commit()
+    finally:
+        conn.close()
+
+
+def normalize_datetime_storage() -> None:
+    if not DB_PATH.exists():
+        return
+
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        cur = conn.cursor()
+        for table, columns in DATETIME_COLUMNS.items():
+            for column in columns:
+                cur.execute(f"SELECT rowid, {column} FROM {table} WHERE {column} IS NOT NULL")
+                updates: list[tuple[str, int]] = []
+                for rowid, raw_value in cur.fetchall():
+                    if raw_value is None:
+                        continue
+                    normalized = to_storage_string(raw_value)
+                    if normalized and normalized != raw_value:
+                        updates.append((normalized, rowid))
+                if updates:
+                    cur.executemany(f"UPDATE {table} SET {column}=? WHERE rowid=?", updates)
+        conn.commit()
     finally:
         conn.close()
 
@@ -196,10 +228,8 @@ def query_tasks(db: Session, *, status: str | None = None, query: str | None = N
 
 
 
-def day_range(target: date) -> tuple[datetime, datetime]:
-    start = datetime.combine(target, time.min)
-    end = start + timedelta(days=1)
-    return start, end
+def today_local() -> date:
+    return now_local().date()
 
 
 
@@ -213,13 +243,13 @@ def recurrence_anchor(task: Task, payload: TaskRecurrenceWrite | None = None) ->
         (payload.start_at if payload else None)
         or task.due_at
         or (task.recurrence.next_run_at if task.recurrence and task.recurrence.next_run_at else None)
-        or datetime.utcnow().replace(microsecond=0)
+        or now_utc().replace(microsecond=0)
     )
 
 
 
 def compute_recurrence_next_run(task: Task, recurrence: TaskRecurrence, *, after_dt: datetime | None = None) -> datetime | None:
-    anchor = recurrence.start_at or task.due_at or recurrence.next_run_at or datetime.utcnow().replace(microsecond=0)
+    anchor = recurrence.start_at or task.due_at or recurrence.next_run_at or now_utc().replace(microsecond=0)
     return compute_next_recurrence(
         frequency=recurrence.frequency,
         interval=recurrence.interval,
@@ -230,6 +260,7 @@ def compute_recurrence_next_run(task: Task, recurrence: TaskRecurrence, *, after
         day_of_month=recurrence.day_of_month,
         start_at=recurrence.start_at,
         end_at=recurrence.end_at,
+        timezone_name=recurrence.timezone,
     )
 
 
@@ -252,12 +283,13 @@ def upsert_recurrence(db: Session, task: Task, payload: TaskRecurrenceWrite) -> 
         frequency=payload.frequency,
         interval=payload.interval,
         anchor_at=anchor,
-        after_dt=datetime.utcnow().replace(microsecond=0),
+        after_dt=now_utc().replace(microsecond=0),
         time_of_day=payload.time_of_day,
         days_of_week=payload.days_of_week,
         day_of_month=payload.day_of_month,
         start_at=payload.start_at,
         end_at=payload.end_at,
+        timezone_name=payload.timezone,
     )
 
     if task.recurrence is None:
@@ -271,7 +303,6 @@ def upsert_recurrence(db: Session, task: Task, payload: TaskRecurrenceWrite) -> 
         if task.status in {TaskStatus.DONE.value, TaskStatus.CANCELED.value}:
             task.status = TaskStatus.TODO.value
             task.completed_at = None
-            task.completion_note = None
             task.canceled_at = None
     return recurrence
 
@@ -285,8 +316,8 @@ def clear_recurrence(task: Task, db: Session) -> None:
 
 
 def build_plan_groups(db: Session, target: date | None = None) -> list[PlanGroup]:
-    target = target or date.today()
-    _, future_start = day_range(target)
+    target = target or today_local()
+    _, future_start = local_day_bounds(target)
     not_started_statuses = [TaskStatus.TODO.value, TaskStatus.DEFERRED.value]
     schedule_at = func.coalesce(Task.deferred_to, Task.due_at)
     tasks = list(
@@ -301,9 +332,10 @@ def build_plan_groups(db: Session, target: date | None = None) -> list[PlanGroup
     grouped: dict[date, list[Task]] = {}
     for task in tasks:
         schedule_value = task_schedule_at(task)
-        if schedule_value is None:
+        group_date = local_date(schedule_value)
+        if group_date is None:
             continue
-        grouped.setdefault(schedule_value.date(), []).append(task)
+        grouped.setdefault(group_date, []).append(task)
 
     sorted_dates = sorted(grouped.keys())
 
@@ -311,7 +343,7 @@ def build_plan_groups(db: Session, target: date | None = None) -> list[PlanGroup
     for group_date in sorted_dates:
         group_tasks = sorted(
             grouped[group_date],
-            key=lambda task: (task_schedule_at(task) or datetime.max, task.created_at),
+            key=lambda task: (task_schedule_at(task) or datetime.max.replace(tzinfo=UTC), task.created_at),
         )
         plan_groups.append(
             PlanGroup(
@@ -325,8 +357,9 @@ def build_plan_groups(db: Session, target: date | None = None) -> list[PlanGroup
     return plan_groups
 
 
+
 def build_plan_summary(db: Session, target: date | None = None) -> PlanSummary:
-    target = target or date.today()
+    target = target or today_local()
     plan_groups = build_plan_groups(db, target)
     total = sum(len(group.tasks) for group in plan_groups)
     return PlanSummary(
@@ -339,8 +372,8 @@ def build_plan_summary(db: Session, target: date | None = None) -> PlanSummary:
 
 
 def build_today_summary(db: Session, target: date | None = None) -> TodaySummary:
-    target = target or date.today()
-    start, end = day_range(target)
+    target = target or today_local()
+    start, end = local_day_bounds(target)
     open_statuses = {TaskStatus.TODO.value, TaskStatus.DOING.value, TaskStatus.DEFERRED.value}
     schedule_at = func.coalesce(Task.deferred_to, Task.due_at)
     stmt = (
@@ -349,7 +382,7 @@ def build_today_summary(db: Session, target: date | None = None) -> TodaySummary
             or_(
                 Task.due_at.between(start, end - timedelta(microseconds=1)),
                 Task.deferred_to.between(start, end - timedelta(microseconds=1)),
-                (Task.status.in_(list(open_statuses))) & (schedule_at < start),
+                and_(Task.status.in_(list(open_statuses)), schedule_at < start),
             )
         )
         .options(*task_load_options())
@@ -387,7 +420,7 @@ def build_board_summary(db: Session) -> BoardSummary:
 def build_history_summary(db: Session, *, target: date | None = None, status: str | None = None, query: str | None = None) -> HistorySummary:
     stmt = query_tasks(db, status=status, query=query)
     if target:
-        start, end = day_range(target)
+        start, end = local_day_bounds(target)
         stmt = stmt.where(
             or_(
                 Task.created_at.between(start, end - timedelta(microseconds=1)),
@@ -427,7 +460,7 @@ def build_project_summaries(db: Session) -> list[ProjectSummary]:
 
 @app.get("/api/health", response_model=HealthResponse)
 def health() -> HealthResponse:
-    return HealthResponse(status="ok", db=str(DB_PATH), now=datetime.utcnow())
+    return HealthResponse(status="ok", db=str(DB_PATH), now=now_local())
 
 
 @app.get("/api/tasks", response_model=list[TaskRead])
@@ -439,7 +472,7 @@ def list_tasks(
 ) -> list[TaskRead]:
     stmt = query_tasks(db, status=status, query=q)
     if date_filter == "today":
-        start, end = day_range(date.today())
+        start, end = local_day_bounds(today_local())
         stmt = stmt.where(Task.due_at.between(start, end - timedelta(microseconds=1)))
     tasks = list(db.scalars(stmt).unique())
     return [serialize_task(task) for task in tasks]
@@ -537,6 +570,15 @@ def update_task(task_id: int, payload: TaskUpdate, db: Session = Depends(get_db)
         task.tags_json = json.dumps(updates.pop("tags"), ensure_ascii=False)
     for field, value in updates.items():
         setattr(task, field, value)
+
+    next_status = updates.get("status", task.status)
+    next_due_at = updates.get("due_at", task.due_at)
+    if "due_at" in updates or "status" in updates:
+        if next_status == TaskStatus.DEFERRED.value:
+            task.deferred_to = next_due_at
+        else:
+            task.deferred_to = None
+
     if clear_recurrence_requested:
         clear_recurrence(task, db)
         add_event(db, task, EventType.RECURRENCE_UPDATED.value, {"cleared": True})
@@ -558,9 +600,17 @@ def update_task(task_id: int, payload: TaskUpdate, db: Session = Depends(get_db)
 @app.post("/api/tasks/{task_id}/complete", response_model=TaskDetail)
 def complete_task(task_id: int, payload: TaskActionComplete, db: Session = Depends(get_db)) -> TaskDetail:
     task = get_task_or_404(db, task_id)
-    completed_at = payload.completed_at or datetime.utcnow()
+    completed_at = payload.completed_at or now_utc()
     completion_note = payload.note
-    add_event(db, task, EventType.COMPLETED.value, {"completed_at": completed_at.isoformat(), "note": completion_note})
+    add_event(
+        db,
+        task,
+        EventType.COMPLETED.value,
+        {
+            "completed_at": completed_at.isoformat(),
+            "note": completion_note,
+        },
+    )
 
     if task.recurrence and task.recurrence.enabled:
         task.recurrence.last_run_at = completed_at
@@ -626,7 +676,7 @@ def defer_task(task_id: int, payload: TaskActionDefer, db: Session = Depends(get
 @app.post("/api/tasks/{task_id}/cancel", response_model=TaskDetail)
 def cancel_task(task_id: int, payload: TaskActionCancel, db: Session = Depends(get_db)) -> TaskDetail:
     task = get_task_or_404(db, task_id)
-    canceled_at = payload.canceled_at or datetime.utcnow()
+    canceled_at = payload.canceled_at or now_utc()
     task.status = TaskStatus.CANCELED.value
     task.canceled_at = canceled_at
     task.completed_at = None

@@ -7,12 +7,22 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from models import ReminderStatus, TaskStatus
 from recurrence import normalize_days_of_week, normalize_time_of_day, validate_recurrence_payload
+from timeutils import APP_TIMEZONE, to_utc_datetime
+
+
+def normalize_datetime_input(value: datetime | str | None) -> datetime | None:
+    return to_utc_datetime(value, assume_tz=APP_TIMEZONE)
 
 
 class ReminderCreate(BaseModel):
     remind_at: datetime
     channel: str = "local"
     note: str | None = None
+
+    @field_validator("remind_at", mode="before")
+    @classmethod
+    def normalize_remind_at(cls, value: datetime | str | None) -> datetime | None:
+        return normalize_datetime_input(value)
 
 
 class ReminderRead(BaseModel):
@@ -32,7 +42,7 @@ class TaskRecurrenceBase(BaseModel):
     enabled: bool = True
     frequency: Literal["daily", "weekly", "monthly"]
     interval: int = Field(default=1, ge=1, le=365)
-    timezone: str = Field(default="UTC", min_length=1, max_length=64)
+    timezone: str = Field(default="Asia/Shanghai", min_length=1, max_length=64)
     time_of_day: str | None = Field(default=None, description="HH:MM or HH:MM:SS")
     days_of_week: list[int] = Field(default_factory=list, description="ISO weekday numbers: 1=Mon ... 7=Sun")
     day_of_month: int | None = Field(default=None, ge=1, le=31)
@@ -58,6 +68,11 @@ class TaskRecurrenceBase(BaseModel):
             if item < 0:
                 raise ValueError("reminder_offsets_minutes must be >= 0")
         return normalized
+
+    @field_validator("start_at", "end_at", mode="before")
+    @classmethod
+    def normalize_recurrence_datetimes(cls, value: datetime | str | None) -> datetime | None:
+        return normalize_datetime_input(value)
 
     @model_validator(mode="after")
     def validate_rule(self) -> "TaskRecurrenceBase":
@@ -106,6 +121,11 @@ class TaskBase(BaseModel):
     def normalize_project(cls, value: str | None) -> str | None:
         return normalize_project_name(value)
 
+    @field_validator("due_at", mode="before")
+    @classmethod
+    def normalize_due_at(cls, value: datetime | str | None) -> datetime | None:
+        return normalize_datetime_input(value)
+
 
 class TaskCreate(TaskBase):
     reminders: list[ReminderCreate] = Field(default_factory=list)
@@ -128,10 +148,20 @@ class TaskUpdate(BaseModel):
     def normalize_project(cls, value: str | None) -> str | None:
         return normalize_project_name(value)
 
+    @field_validator("due_at", mode="before")
+    @classmethod
+    def normalize_due_at(cls, value: datetime | str | None) -> datetime | None:
+        return normalize_datetime_input(value)
+
 
 class TaskActionComplete(BaseModel):
     completed_at: datetime | None = None
     note: str | None = None
+
+    @field_validator("completed_at", mode="before")
+    @classmethod
+    def normalize_completed_at(cls, value: datetime | str | None) -> datetime | None:
+        return normalize_datetime_input(value)
 
     @field_validator("note", mode="before")
     @classmethod
@@ -146,11 +176,21 @@ class TaskActionCancel(BaseModel):
     canceled_at: datetime | None = None
     reason: str | None = None
 
+    @field_validator("canceled_at", mode="before")
+    @classmethod
+    def normalize_canceled_at(cls, value: datetime | str | None) -> datetime | None:
+        return normalize_datetime_input(value)
+
 
 class TaskActionDefer(BaseModel):
     deferred_to: datetime
     due_at: datetime | None = None
     reason: str | None = None
+
+    @field_validator("deferred_to", "due_at", mode="before")
+    @classmethod
+    def normalize_defer_datetimes(cls, value: datetime | str | None) -> datetime | None:
+        return normalize_datetime_input(value)
 
 
 class TaskEventRead(BaseModel):
