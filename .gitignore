@@ -3,8 +3,12 @@ frontend/dist/
 backend/.venv/
 backend/data/
 backend/__pycache__/
+backend/scripts/__pycache__/
 frontend/.vite/
+frontend/.codex/
+frontend/.env
 frontend/*.tsbuildinfo
 backend/logs/
 frontend/logs/
+mobile_frontend/
 .DS_Store
