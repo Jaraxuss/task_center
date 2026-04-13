@@ -982,6 +982,17 @@ export function TaskDetailModal({
   const [completeNote, setCompleteNote] = useState('');
 
   const recentEvents = useMemo(() => (task ? summarizeEvents(task) : []), [task]);
+  const latestFollowupResult = useMemo(() => {
+    if (!task) return '';
+    if (task.completion_note?.trim()) return task.completion_note.trim();
+    const events = task.events || [];
+    for (const event of events) {
+      const note = typeof event.payload?.note === 'string' ? event.payload.note.trim() : '';
+      if (!note) continue;
+      if (event.event_type === 'completed' || event.event_type === 'recurrence_advanced') return note;
+    }
+    return '';
+  }, [task]);
 
   useEffect(() => {
     setTitleValue(task?.title || '');
@@ -1052,6 +1063,13 @@ export function TaskDetailModal({
         <p className="muted">{task.description || '暂无描述'}</p>
       </div>
 
+      {latestFollowupResult ? (
+        <div className="subcard inline">
+          <strong>{task.status === 'done' ? '本次跟进结果' : '最近一次跟进结果'}</strong>
+          <span>{latestFollowupResult}</span>
+        </div>
+      ) : null}
+
       <div className="detail-overview-strip compact-overview">
         <MetaItem label="项目" value={task.project || '未设置'} />
         <MetaItem label="当前时间" value={task.due_at ? formatDateTime(task.due_at) : '未设置'} />
@@ -1080,12 +1098,6 @@ export function TaskDetailModal({
               <MetaItem label="提醒数" value={String(task.reminders?.length || 0)} />
               <MetaItem label="事件数" value={String(task.events?.length || 0)} />
             </div>
-            {task.completion_note ? (
-              <div className="subcard inline">
-                <strong>最近一次跟进结果</strong>
-                <span>{task.completion_note}</span>
-              </div>
-            ) : null}
           </div>
 
           <div className="detail-section card section-card">
