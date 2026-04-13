@@ -10,6 +10,7 @@ import {
   statusMeta,
   summarizeEvents,
   TimeFormatMode,
+  toDateMillis,
   toIsoStringFromInput,
 } from './utils';
 
@@ -112,11 +113,13 @@ interface RecurrenceFormValue {
 
 function createRecurrenceFormValue(task?: Pick<Task, 'due_at' | 'recurrence'> | null): RecurrenceFormValue {
   const recurrence = task?.recurrence;
-  const dueAt = task?.due_at ? new Date(task.due_at) : null;
+  const dueAt = formatDateTimeInput(task?.due_at);
+  const [datePart, timePart] = dueAt ? dueAt.split('T') : ['', ''];
+  const dayOfMonth = datePart ? String(Number(datePart.split('-')[2] || '1')) : '1';
   return {
     type: recurrence?.type || 'none',
-    dayOfMonth: String(recurrence?.day_of_month || (dueAt ? dueAt.getDate() : '1')),
-    timeOfDay: recurrence?.time_of_day || (dueAt ? `${String(dueAt.getHours()).padStart(2, '0')}:${String(dueAt.getMinutes()).padStart(2, '0')}` : '09:00'),
+    dayOfMonth: String(recurrence?.day_of_month || dayOfMonth),
+    timeOfDay: recurrence?.time_of_day || (timePart ? timePart.slice(0, 5) : '09:00'),
     timezone: recurrence?.timezone || getLocalTimeZone(),
   };
 }
@@ -426,7 +429,7 @@ function getPlanTaskScheduleAt(task: Task) {
 function formatPlanTaskTime(task: Task) {
   const scheduleAt = getPlanTaskScheduleAt(task);
   if (!scheduleAt) return '未安排';
-  return new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(scheduleAt));
+  return formatDateTime(scheduleAt).split(' ').slice(-1)[0] || formatDateTime(scheduleAt);
 }
 
 function formatPlanTaskMeta(task: Task) {
@@ -443,15 +446,15 @@ export function PlannedTaskGroups({ groups, selectedTaskId, onSelect }: { groups
           tasks: [...group.tasks].sort((a, b) => {
             const aScheduleAt = getPlanTaskScheduleAt(a);
             const bScheduleAt = getPlanTaskScheduleAt(b);
-            const aTime = aScheduleAt ? new Date(aScheduleAt).getTime() : Number.MAX_SAFE_INTEGER;
-            const bTime = bScheduleAt ? new Date(bScheduleAt).getTime() : Number.MAX_SAFE_INTEGER;
+            const aTime = aScheduleAt ? toDateMillis(aScheduleAt) : Number.MAX_SAFE_INTEGER;
+            const bTime = bScheduleAt ? toDateMillis(bScheduleAt) : Number.MAX_SAFE_INTEGER;
             if (aTime !== bTime) return aTime - bTime;
-            return new Date(b.updated_at || b.created_at).getTime() - new Date(a.updated_at || a.created_at).getTime();
+            return toDateMillis(b.updated_at || b.created_at) - toDateMillis(a.updated_at || a.created_at);
           }),
         }))
         .sort((a, b) => {
-          const aTime = a.group_date ? new Date(`${a.group_date}T00:00:00`).getTime() : Number.MAX_SAFE_INTEGER;
-          const bTime = b.group_date ? new Date(`${b.group_date}T00:00:00`).getTime() : Number.MAX_SAFE_INTEGER;
+          const aTime = a.group_date ? toDateMillis(`${a.group_date}T00:00:00+08:00`) : Number.MAX_SAFE_INTEGER;
+          const bTime = b.group_date ? toDateMillis(`${b.group_date}T00:00:00+08:00`) : Number.MAX_SAFE_INTEGER;
           if (aTime !== bTime) return aTime - bTime;
           return a.title.localeCompare(b.title, 'zh-CN');
         }),
@@ -768,7 +771,7 @@ function BoardColumn({
     total: group.tasks.length,
     completed: group.tasks.filter((task) => task.status === 'done').length,
     open: group.tasks.filter((task) => task.status !== 'done' && task.status !== 'canceled').length,
-    overdue: group.tasks.filter((task) => task.status !== 'done' && task.status !== 'canceled' && task.due_at && new Date(task.due_at).getTime() < now).length,
+    overdue: group.tasks.filter((task) => task.status !== 'done' && task.status !== 'canceled' && task.due_at && toDateMillis(task.due_at) < now).length,
   };
   const showStatusRow = visibleFields.includes('status') && !isProjectGroup;
   const showProjectField = visibleFields.includes('project') && !isProjectGroup;
@@ -975,11 +978,11 @@ export function TaskDetailModal({
   const [recurrenceValue, setRecurrenceValue] = useState<RecurrenceFormValue>(createRecurrenceFormValue(null));
   const [deferValue, setDeferValue] = useState('');
   const [deferNote, setDeferNote] = useState('');
+  const [completeNote, setCompleteNote] = useState('');
   const [remindAt, setRemindAt] = useState('');
   const [channel, setChannel] = useState('web');
   const [reminderNote, setReminderNote] = useState('');
   const [cancelNote, setCancelNote] = useState('');
-  const [completeNote, setCompleteNote] = useState('');
 
   const recentEvents = useMemo(() => (task ? summarizeEvents(task) : []), [task]);
   const latestFollowupResult = useMemo(() => {
@@ -1002,6 +1005,7 @@ export function TaskDetailModal({
     setRecurrenceValue(createRecurrenceFormValue(task));
     setDeferValue('');
     setDeferNote('');
+    setCompleteNote(task?.completion_note || '');
     setRemindAt('');
     setChannel('web');
     setReminderNote('');
@@ -1034,7 +1038,9 @@ export function TaskDetailModal({
   const submitDefer = (e: FormEvent) => {
     e.preventDefault();
     if (!deferValue) return;
-    onDefer(task, { deferred_to: new Date(deferValue).toISOString(), note: deferNote || undefined });
+    const deferredTo = toIsoStringFromInput(deferValue);
+    if (!deferredTo) return;
+    onDefer(task, { deferred_to: deferredTo, note: deferNote || undefined });
   };
 
   const submitComplete = (e: FormEvent) => {
@@ -1045,8 +1051,10 @@ export function TaskDetailModal({
   const submitReminder = (e: FormEvent) => {
     e.preventDefault();
     if (!remindAt) return;
+    const remindAtIso = toIsoStringFromInput(remindAt);
+    if (!remindAtIso) return;
     onAddReminder(task, {
-      remind_at: new Date(remindAt).toISOString(),
+      remind_at: remindAtIso,
       channel,
       note: reminderNote || undefined,
     });

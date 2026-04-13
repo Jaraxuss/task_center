@@ -1,5 +1,7 @@
 import { Task, TaskRecurrence, TaskStatus } from './types';
 
+export const APP_TIME_ZONE = 'Asia/Shanghai';
+
 export const statusMeta: Record<TaskStatus, { label: string; tone: string }> = {
   todo: { label: '待办', tone: 'slate' },
   doing: { label: '进行中', tone: 'blue' },
@@ -11,9 +13,9 @@ export const statusMeta: Record<TaskStatus, { label: string; tone: string }> = {
 export type TimeFormatMode = 'cn-short' | 'ymd-24' | 'slash-24';
 
 const timeFormatOptions: Record<TimeFormatMode, Intl.DateTimeFormatOptions> = {
-  'cn-short': { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' },
-  'ymd-24': { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false },
-  'slash-24': { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false },
+  'cn-short': { timeZone: APP_TIME_ZONE, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false },
+  'ymd-24': { timeZone: APP_TIME_ZONE, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false },
+  'slash-24': { timeZone: APP_TIME_ZONE, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false },
 };
 
 export function getTimeFormatMode(): TimeFormatMode {
@@ -23,12 +25,63 @@ export function getTimeFormatMode(): TimeFormatMode {
 }
 
 export function getLocalTimeZone() {
-  return Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai';
+  return APP_TIME_ZONE;
+}
+
+function getDateFormatterParts(value: Date) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: APP_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(value);
+}
+
+function getNaiveDateTimeParts(value?: string | null) {
+  if (!value) return null;
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{2}):(\d{2})(?::\d{2}(?:\.\d+)?)?)?$/);
+  if (!match) return null;
+  return {
+    year: match[1],
+    month: match[2],
+    day: match[3],
+    hour: match[4] || '00',
+    minute: match[5] || '00',
+    dateKey: `${match[1]}-${match[2]}-${match[3]}`,
+  };
+}
+
+export function getDateKey(value?: string | null) {
+  if (!value) return null;
+  const naive = getNaiveDateTimeParts(value);
+  if (naive) return naive.dateKey;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  const parts = getDateFormatterParts(date);
+  const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value || '';
+  return `${get('year')}-${get('month')}-${get('day')}`;
+}
+
+export function currentDateKey(date = new Date()) {
+  return getDateKey(date.toISOString()) || date.toISOString().slice(0, 10);
+}
+
+export function toDateMillis(value?: string | null) {
+  if (!value) return Number.NaN;
+  const naive = getNaiveDateTimeParts(value);
+  if (naive) return new Date(`${naive.dateKey}T${naive.hour}:${naive.minute}:00+08:00`).getTime();
+  return new Date(value).getTime();
 }
 
 export function formatDateTime(value?: string | null) {
   if (!value) return '未设置';
+  const naive = getNaiveDateTimeParts(value);
+  if (naive) return `${naive.month}/${naive.day} ${naive.hour}:${naive.minute}`;
   const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
   const mode = getTimeFormatMode();
 
   if (mode === 'slash-24') {
@@ -42,14 +95,17 @@ export function formatDateTime(value?: string | null) {
 
 export function formatDateTimeInput(value?: string | null) {
   if (!value) return '';
+  const naive = getNaiveDateTimeParts(value);
+  if (naive) return `${naive.dateKey}T${naive.hour}:${naive.minute}`;
   const date = new Date(value);
-  const offset = date.getTimezoneOffset();
-  const localDate = new Date(date.getTime() - offset * 60000);
-  return localDate.toISOString().slice(0, 16);
+  if (Number.isNaN(date.getTime())) return '';
+  const parts = getDateFormatterParts(date);
+  const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value || '';
+  return `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}`;
 }
 
 export function toIsoStringFromInput(value: string) {
-  return value ? new Date(value).toISOString() : null;
+  return value ? new Date(`${value}:00+08:00`).toISOString() : null;
 }
 
 function normalizeTimeOfDay(value?: string | null) {
@@ -112,8 +168,8 @@ export function summarizeEvents(task: Task) {
 
 export function sortTasksByRecency(tasks: Task[]) {
   return [...tasks].sort((a, b) => {
-    const aTime = new Date(a.updated_at || a.created_at).getTime();
-    const bTime = new Date(b.updated_at || b.created_at).getTime();
+    const aTime = toDateMillis(a.updated_at || a.created_at);
+    const bTime = toDateMillis(b.updated_at || b.created_at);
     return bTime - aTime;
   });
 }

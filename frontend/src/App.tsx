@@ -17,7 +17,7 @@ import {
   ViewHero,
 } from './components';
 import { DashboardBoard, DashboardPlan, DashboardToday, HistoryResponse, PlanGroup, ProjectSummary, Task, TaskGroup } from './types';
-import { groupTasksByProject, sortTasksByRecency, TimeFormatMode } from './utils';
+import { currentDateKey, getDateKey, groupTasksByProject, sortTasksByRecency, TimeFormatMode, toDateMillis } from './utils';
 
 type ViewMode = 'today' | 'plan' | 'board' | 'history';
 type ThemeMode = 'light' | 'dark';
@@ -80,12 +80,12 @@ function normalizeBoardViewConfigs(value?: Partial<BoardViewConfigMap> | null): 
   };
 }
 
-function computeTodaySummary(tasks: Task[], date = new Date().toISOString().slice(0, 10)): DashboardToday['summary'] {
+function computeTodaySummary(tasks: Task[], date = currentDateKey()): DashboardToday['summary'] {
   const now = Date.now();
   const completed = tasks.filter((task) => task.status === 'done').length;
-  const overdue = tasks.filter((task) => task.status !== 'done' && task.status !== 'canceled' && task.due_at && new Date(task.due_at).getTime() < now).length;
+  const overdue = tasks.filter((task) => task.status !== 'done' && task.status !== 'canceled' && task.due_at && toDateMillis(task.due_at) < now).length;
   const open = tasks.filter((task) => task.status !== 'done' && task.status !== 'canceled').length;
-  const dueToday = tasks.filter((task) => task.due_at?.slice(0, 10) === date).length;
+  const dueToday = tasks.filter((task) => getDateKey(task.due_at) === date).length;
 
   return {
     total: tasks.length,
@@ -143,7 +143,7 @@ function matchesBoardCondition(task: Task, condition: BoardFilterCondition) {
   }
 
   if (condition.field === 'due_at') {
-    const target = task.due_at?.slice(0, 10) || '';
+    const target = getDateKey(task.due_at) || '';
     switch (condition.operator) {
       case 'on':
         return target === value;
@@ -678,7 +678,6 @@ function App() {
   }, [
     activeView,
     today,
-    plan,
     board,
     history,
     selectedTask,

@@ -16,7 +16,7 @@ import {
   UpdateTaskPayload,
 } from './types';
 import { API_BASE_URL } from './config';
-import { normalizeTaskRecurrence } from './utils';
+import { currentDateKey, getDateKey, normalizeTaskRecurrence, toDateMillis } from './utils';
 
 const boardTitles: Record<TaskStatus, string> = {
   todo: '待办',
@@ -174,12 +174,12 @@ export const api = {
     const tasks = Array.isArray(response.tasks) ? response.tasks.map(normalizeTask) : [];
     const now = Date.now();
     const completed = tasks.filter((task: Task) => task.status === 'done').length;
-    const overdue = tasks.filter((task: Task) => task.status !== 'done' && task.status !== 'canceled' && task.due_at && new Date(task.due_at).getTime() < now).length;
+    const overdue = tasks.filter((task: Task) => task.status !== 'done' && task.status !== 'canceled' && task.due_at && toDateMillis(task.due_at) < now).length;
     return {
-      date: response.date,
+      date: response.date || currentDateKey(),
       summary: {
         total: Number(response.total || tasks.length),
-        dueToday: tasks.length,
+        dueToday: tasks.filter((task: Task) => getDateKey(task.due_at) === (response.date || currentDateKey())).length,
         overdue,
         completed,
         open: Number(response.open_count || 0),
@@ -198,7 +198,7 @@ export const api = {
   getPlanDashboard: async () => {
     const response = await request<any>('/api/dashboard/plan');
     return {
-      date: response.date,
+      date: response.date || currentDateKey(),
       total: Number(response.total || 0),
       open_count: Number(response.open_count || 0),
       planGroups: Array.isArray(response.plan_groups)
