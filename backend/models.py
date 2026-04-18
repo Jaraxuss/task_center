@@ -128,3 +128,13 @@ class TaskEvent(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTimeText(), nullable=False, default=now_utc, index=True)
 
     task: Mapped[Task] = relationship("Task", back_populates="events")
+
+
+class BoardPreference(Base):
+    __tablename__ = "board_preferences"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    task_order_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    pinned_projects_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    created_at: Mapped[datetime] = mapped_column(UTCDateTimeText(), nullable=False, default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTimeText(), nullable=False, default=now_utc, onupdate=now_utc)

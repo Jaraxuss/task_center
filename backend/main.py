@@ -13,10 +13,12 @@ from sqlalchemy.orm import Session, selectinload
 
 from config import get_settings
 from db import Base, engine, get_db
-from models import EventType, Reminder, ReminderStatus, Task, TaskEvent, TaskRecurrence, TaskStatus
+from models import BoardPreference, EventType, Reminder, ReminderStatus, Task, TaskEvent, TaskRecurrence, TaskStatus
 from recurrence import compute_next_recurrence, normalize_days_of_week, normalize_time_of_day
 from timeutils import APP_TIMEZONE, UTC, local_date, local_day_bounds, now_local, now_utc, parse_datetime_string, to_storage_string
 from schemas import (
+    BoardPreferenceRead,
+    BoardPreferenceUpdate,
     BoardSummary,
     DashboardPayload,
     HealthResponse,
@@ -113,6 +115,34 @@ def normalize_datetime_storage() -> None:
     finally:
         conn.close()
 
+
+
+def get_board_preference(db: Session) -> BoardPreference:
+    preference = db.scalar(select(BoardPreference).limit(1))
+    if preference is None:
+        preference = BoardPreference()
+        db.add(preference)
+        db.flush()
+    return preference
+
+
+def serialize_board_preference(preference: BoardPreference) -> BoardPreferenceRead:
+    try:
+        task_order = [int(item) for item in json.loads(preference.task_order_json or "[]") if int(item) > 0]
+    except Exception:
+        task_order = []
+
+    try:
+        pinned_projects = [str(item).strip() for item in json.loads(preference.pinned_projects_json or "[]") if str(item).strip()]
+    except Exception:
+        pinned_projects = []
+
+    normalized_projects: list[str] = []
+    for project in pinned_projects:
+        if project not in normalized_projects:
+            normalized_projects.append(project)
+
+    return BoardPreferenceRead(task_order=task_order, pinned_projects=normalized_projects)
 
 
 def recurrence_event_payload(recurrence: TaskRecurrence) -> dict[str, Any]:
@@ -235,6 +265,23 @@ def today_local() -> date:
 
 def task_schedule_at(task: Task) -> datetime | None:
     return task.deferred_to or task.due_at
+
+
+
+def get_board_sort_metadata(db: Session) -> tuple[dict[int, int], list[str]]:
+    preference = serialize_board_preference(get_board_preference(db))
+    task_order_map = {task_id: index for index, task_id in enumerate(preference.task_order)}
+    return task_order_map, preference.pinned_projects
+
+
+
+def sort_tasks_for_board(tasks: list[Task], task_order_map: dict[int, int]) -> list[Task]:
+    def sort_key(task: Task) -> tuple[int, int, datetime, datetime]:
+        custom_rank = task_order_map.get(task.id, 10**9)
+        schedule_at = task_schedule_at(task) or datetime.max.replace(tzinfo=UTC)
+        return (0 if task.id in task_order_map else 1, custom_rank, schedule_at, task.updated_at)
+
+    return sorted(tasks, key=sort_key)
 
 
 
@@ -410,9 +457,11 @@ def build_board_summary(db: Session) -> BoardSummary:
         TaskStatus.CANCELED.value,
     ]
     tasks = list(db.scalars(query_tasks(db)).unique())
+    task_order_map, _ = get_board_sort_metadata(db)
     grouped: list[TaskBoardGroup] = []
     for status in status_order:
-        grouped.append(TaskBoardGroup(status=status, tasks=[serialize_task(task) for task in tasks if task.status == status]))
+        status_tasks = [task for task in tasks if task.status == status]
+        grouped.append(TaskBoardGroup(status=status, tasks=[serialize_task(task) for task in sort_tasks_for_board(status_tasks, task_order_map)]))
     return BoardSummary(groups=grouped)
 
 
@@ -444,6 +493,9 @@ def build_project_summaries(db: Session) -> list[ProjectSummary]:
         grouped.setdefault(task.project, []).append(task)
 
     open_statuses = {TaskStatus.TODO.value, TaskStatus.DOING.value, TaskStatus.DEFERRED.value}
+    _, pinned_projects = get_board_sort_metadata(db)
+    pinned_index = {name: index for index, name in enumerate(pinned_projects)}
+
     return sorted(
         [
             ProjectSummary(
@@ -454,7 +506,13 @@ def build_project_summaries(db: Session) -> list[ProjectSummary]:
             )
             for project_name, project_tasks in grouped.items()
         ],
-        key=lambda item: (-item.open_task_count, -item.task_count, item.name),
+        key=lambda item: (
+            0 if item.name in pinned_index else 1,
+            pinned_index.get(item.name, 10**9),
+            -item.open_task_count,
+            -item.task_count,
+            item.name,
+        ),
     )
 
 
@@ -483,6 +541,27 @@ def list_projects(db: Session = Depends(get_db)) -> list[ProjectSummary]:
     return build_project_summaries(db)
 
 
+@app.get("/api/preferences/board", response_model=BoardPreferenceRead)
+def get_board_preferences(db: Session = Depends(get_db)) -> BoardPreferenceRead:
+    return serialize_board_preference(get_board_preference(db))
+
+
+@app.patch("/api/preferences/board", response_model=BoardPreferenceRead)
+def update_board_preferences(payload: BoardPreferenceUpdate, db: Session = Depends(get_db)) -> BoardPreferenceRead:
+    preference = get_board_preference(db)
+    updates = payload.model_dump(exclude_unset=True)
+
+    if "task_order" in updates and updates["task_order"] is not None:
+        preference.task_order_json = json.dumps(updates["task_order"], ensure_ascii=False)
+    if "pinned_projects" in updates and updates["pinned_projects"] is not None:
+        preference.pinned_projects_json = json.dumps(updates["pinned_projects"], ensure_ascii=False)
+
+    db.add(preference)
+    db.commit()
+    db.refresh(preference)
+    return serialize_board_preference(preference)
+
+
 @app.patch("/api/projects/rename", response_model=ProjectRenameResponse)
 def rename_project(payload: ProjectRenameRequest, db: Session = Depends(get_db)) -> ProjectRenameResponse:
     if payload.old_name == payload.new_name:
@@ -502,6 +581,13 @@ def rename_project(payload: ProjectRenameRequest, db: Session = Depends(get_db))
             EventType.PROJECT_RENAMED.value,
             {"old_name": payload.old_name, "new_name": payload.new_name},
         )
+
+    preference = get_board_preference(db)
+    pinned_projects = serialize_board_preference(preference).pinned_projects
+    if payload.old_name in pinned_projects:
+        pinned_projects = [payload.new_name if name == payload.old_name else name for name in pinned_projects]
+        preference.pinned_projects_json = json.dumps(pinned_projects, ensure_ascii=False)
+        db.add(preference)
 
     db.commit()
     project_summary = next((item for item in build_project_summaries(db) if item.name == payload.new_name), None)

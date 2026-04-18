@@ -258,6 +258,40 @@ class ProjectRenameResponse(BaseModel):
     project: ProjectSummary
 
 
+class BoardPreferenceRead(BaseModel):
+    task_order: list[int] = Field(default_factory=list)
+    pinned_projects: list[str] = Field(default_factory=list)
+
+
+class BoardPreferenceUpdate(BaseModel):
+    task_order: list[int] | None = None
+    pinned_projects: list[str] | None = None
+
+    @field_validator("task_order")
+    @classmethod
+    def normalize_task_order(cls, value: list[int] | None) -> list[int] | None:
+        if value is None:
+            return None
+        normalized: list[int] = []
+        for item in value:
+            task_id = int(item)
+            if task_id > 0 and task_id not in normalized:
+                normalized.append(task_id)
+        return normalized
+
+    @field_validator("pinned_projects")
+    @classmethod
+    def normalize_pinned_projects(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        normalized: list[str] = []
+        for item in value:
+            project = normalize_project_name(item)
+            if project and project not in normalized:
+                normalized.append(project)
+        return normalized
+
+
 class PlanGroup(BaseModel):
     key: str
     title: str
