@@ -136,5 +136,6 @@ class BoardPreference(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     task_order_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     pinned_projects_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    project_order_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     created_at: Mapped[datetime] = mapped_column(UTCDateTimeText(), nullable=False, default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTimeText(), nullable=False, default=now_utc, onupdate=now_utc)

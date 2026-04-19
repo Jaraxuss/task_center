@@ -261,11 +261,13 @@ class ProjectRenameResponse(BaseModel):
 class BoardPreferenceRead(BaseModel):
     task_order: list[int] = Field(default_factory=list)
     pinned_projects: list[str] = Field(default_factory=list)
+    project_order: list[str] = Field(default_factory=list)
 
 
 class BoardPreferenceUpdate(BaseModel):
     task_order: list[int] | None = None
     pinned_projects: list[str] | None = None
+    project_order: list[str] | None = None
 
     @field_validator("task_order")
     @classmethod
@@ -279,9 +281,9 @@ class BoardPreferenceUpdate(BaseModel):
                 normalized.append(task_id)
         return normalized
 
-    @field_validator("pinned_projects")
+    @field_validator("pinned_projects", "project_order")
     @classmethod
-    def normalize_pinned_projects(cls, value: list[str] | None) -> list[str] | None:
+    def normalize_project_name_list(cls, value: list[str] | None) -> list[str] | None:
         if value is None:
             return None
         normalized: list[str] = []
