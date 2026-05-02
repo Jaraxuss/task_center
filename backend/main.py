@@ -13,13 +13,16 @@ from sqlalchemy.orm import Session, selectinload
 
 from config import get_settings
 from db import Base, engine, get_db
-from models import BoardPreference, EventType, Reminder, ReminderStatus, Task, TaskEvent, TaskRecurrence, TaskStatus
+from models import BoardPreference, CustomerMaterial, CustomerMaterialStatus, EventType, Reminder, ReminderStatus, Task, TaskEvent, TaskRecurrence, TaskStatus
 from recurrence import compute_next_recurrence, normalize_days_of_week, normalize_time_of_day
 from timeutils import APP_TIMEZONE, UTC, local_date, local_day_bounds, now_local, now_utc, parse_datetime_string, to_storage_string
 from schemas import (
     BoardPreferenceRead,
     BoardPreferenceUpdate,
     BoardSummary,
+    CustomerMaterialCreate,
+    CustomerMaterialRead,
+    CustomerMaterialUpdate,
     DashboardPayload,
     HealthResponse,
     HistorySummary,
@@ -43,6 +46,7 @@ from schemas import (
     TaskRecurrenceWrite,
     TaskUpdate,
     TodaySummary,
+    normalize_project_name,
 )
 
 settings = get_settings()
@@ -61,6 +65,7 @@ DATETIME_COLUMNS: dict[str, list[str]] = {
     "reminders": ["remind_at", "created_at", "updated_at"],
     "task_recurrences": ["start_at", "end_at", "next_run_at", "last_run_at", "created_at", "updated_at"],
     "task_events": ["created_at"],
+    "customer_materials": ["material_date", "created_at", "updated_at", "archived_at"],
 }
 
 
@@ -224,6 +229,75 @@ def serialize_task(task: Task) -> TaskRead:
         reminders=[ReminderRead.model_validate(reminder) for reminder in sorted(task.reminders, key=lambda r: r.remind_at)],
         recurrence=serialize_recurrence(task.recurrence),
     )
+
+
+def parse_json_object(raw_value: str | None) -> dict[str, Any]:
+    if not raw_value:
+        return {}
+    try:
+        value = json.loads(raw_value)
+    except json.JSONDecodeError:
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def parse_json_list(raw_value: str | None) -> list[str]:
+    if not raw_value:
+        return []
+    try:
+        value = json.loads(raw_value)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(value, list):
+        return []
+    normalized: list[str] = []
+    for item in value:
+        text = str(item).strip()
+        if text and text not in normalized:
+            normalized.append(text)
+    return normalized
+
+
+def serialize_customer_material(material: CustomerMaterial) -> CustomerMaterialRead:
+    return CustomerMaterialRead(
+        id=material.id,
+        project=material.project,
+        title=material.title,
+        material_date=material.material_date,
+        source_type=material.source_type,
+        source=material.source,
+        source_refs=parse_json_object(material.source_refs_json),
+        raw_source_markdown=material.raw_source_markdown,
+        candidate_markdown=material.candidate_markdown,
+        value_types=parse_json_list(material.value_types_json),
+        status=material.status,
+        review_note=material.review_note,
+        task_id=material.task_id,
+        created_at=material.created_at,
+        updated_at=material.updated_at,
+        archived_at=material.archived_at,
+    )
+
+
+def get_customer_material_or_404(db: Session, material_id: int) -> CustomerMaterial:
+    material = db.scalar(select(CustomerMaterial).where(CustomerMaterial.id == material_id))
+    if not material:
+        raise HTTPException(status_code=404, detail="Customer material not found")
+    return material
+
+
+def validate_task_reference(db: Session, task_id: int | None) -> None:
+    if task_id is None:
+        return
+    if not db.get(Task, task_id):
+        raise HTTPException(status_code=404, detail="Referenced task not found")
+
+
+def validate_customer_material_status(status: str | None) -> None:
+    if status is None:
+        return
+    if status not in {item.value for item in CustomerMaterialStatus}:
+        raise HTTPException(status_code=400, detail="Invalid customer material status")
 
 
 
@@ -634,6 +708,123 @@ def get_task(task_id: int, db: Session = Depends(get_db)) -> TaskDetail:
     task = get_task_or_404(db, task_id)
     detail = serialize_task(task)
     return TaskDetail(**detail.model_dump(), events=[serialize_event(event) for event in sorted(task.events, key=lambda e: e.created_at, reverse=True)])
+
+
+@app.get("/api/customer-materials", response_model=list[CustomerMaterialRead])
+def list_customer_materials(
+    project: str | None = Query(default=None),
+    q: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    value_type: str | None = Query(default=None),
+    task_id: int | None = Query(default=None),
+    include_archived: bool = False,
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+) -> list[CustomerMaterialRead]:
+    validate_customer_material_status(status)
+    stmt = select(CustomerMaterial)
+    if project:
+        normalized_project = normalize_project_name(project)
+        if normalized_project:
+            stmt = stmt.where(CustomerMaterial.project == normalized_project)
+    if status:
+        stmt = stmt.where(CustomerMaterial.status == status)
+    if task_id is not None:
+        stmt = stmt.where(CustomerMaterial.task_id == task_id)
+    if not include_archived:
+        stmt = stmt.where(CustomerMaterial.archived_at.is_(None))
+    if value_type:
+        # value_types are stored as a JSON array; LIKE is enough for MVP filtering.
+        stmt = stmt.where(CustomerMaterial.value_types_json.like(f"%{value_type.strip()}%"))
+    if q:
+        pattern = f"%{q.strip()}%"
+        stmt = stmt.where(
+            or_(
+                CustomerMaterial.title.like(pattern),
+                CustomerMaterial.project.like(pattern),
+                CustomerMaterial.raw_source_markdown.like(pattern),
+                CustomerMaterial.candidate_markdown.like(pattern),
+            )
+        )
+    stmt = stmt.order_by(CustomerMaterial.updated_at.desc(), CustomerMaterial.id.desc()).limit(limit)
+    return [serialize_customer_material(material) for material in db.scalars(stmt).all()]
+
+
+@app.post("/api/customer-materials", response_model=CustomerMaterialRead, status_code=201)
+def create_customer_material(payload: CustomerMaterialCreate, db: Session = Depends(get_db)) -> CustomerMaterialRead:
+    validate_task_reference(db, payload.task_id)
+    validate_customer_material_status(payload.status)
+    material = CustomerMaterial(
+        project=payload.project,
+        title=payload.title,
+        material_date=payload.material_date,
+        source_type=payload.source_type,
+        source=payload.source,
+        source_refs_json=json.dumps(payload.source_refs, ensure_ascii=False),
+        raw_source_markdown=payload.raw_source_markdown,
+        candidate_markdown=payload.candidate_markdown,
+        value_types_json=json.dumps(payload.value_types, ensure_ascii=False),
+        status=payload.status,
+        review_note=payload.review_note,
+        task_id=payload.task_id,
+    )
+    db.add(material)
+    db.commit()
+    db.refresh(material)
+    return serialize_customer_material(material)
+
+
+@app.get("/api/customer-materials/{material_id}", response_model=CustomerMaterialRead)
+def get_customer_material(material_id: int, db: Session = Depends(get_db)) -> CustomerMaterialRead:
+    return serialize_customer_material(get_customer_material_or_404(db, material_id))
+
+
+@app.patch("/api/customer-materials/{material_id}", response_model=CustomerMaterialRead)
+def update_customer_material(material_id: int, payload: CustomerMaterialUpdate, db: Session = Depends(get_db)) -> CustomerMaterialRead:
+    material = get_customer_material_or_404(db, material_id)
+    updates = payload.model_dump(exclude_unset=True)
+    clear_task = bool(updates.pop("clear_task", False))
+    if "status" in updates:
+        validate_customer_material_status(updates["status"])
+    if "task_id" in updates:
+        validate_task_reference(db, updates["task_id"])
+    if clear_task:
+        material.task_id = None
+    if "source_refs" in updates:
+        material.source_refs_json = json.dumps(updates.pop("source_refs") or {}, ensure_ascii=False)
+    if "value_types" in updates:
+        material.value_types_json = json.dumps(updates.pop("value_types") or [], ensure_ascii=False)
+    for field, value in updates.items():
+        setattr(material, field, value)
+    db.add(material)
+    db.commit()
+    db.refresh(material)
+    return serialize_customer_material(material)
+
+
+@app.delete("/api/customer-materials/{material_id}", response_model=CustomerMaterialRead)
+def archive_customer_material(material_id: int, db: Session = Depends(get_db)) -> CustomerMaterialRead:
+    material = get_customer_material_or_404(db, material_id)
+    if material.archived_at is None:
+        material.archived_at = now_utc()
+        db.add(material)
+        db.commit()
+        db.refresh(material)
+    return serialize_customer_material(material)
+
+
+@app.get("/api/tasks/{task_id}/customer-materials", response_model=list[CustomerMaterialRead])
+def list_task_customer_materials(
+    task_id: int,
+    include_archived: bool = False,
+    db: Session = Depends(get_db),
+) -> list[CustomerMaterialRead]:
+    get_task_or_404(db, task_id)
+    stmt = select(CustomerMaterial).where(CustomerMaterial.task_id == task_id)
+    if not include_archived:
+        stmt = stmt.where(CustomerMaterial.archived_at.is_(None))
+    stmt = stmt.order_by(CustomerMaterial.updated_at.desc(), CustomerMaterial.id.desc())
+    return [serialize_customer_material(material) for material in db.scalars(stmt).all()]
 
 
 @app.post("/api/tasks", response_model=TaskDetail, status_code=201)

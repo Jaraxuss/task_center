@@ -34,6 +34,13 @@ class TaskStatus(str, Enum):
     CANCELED = "canceled"
 
 
+class CustomerMaterialStatus(str, Enum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    SKIPPED = "skipped"
+    UPLOADED = "uploaded"
+
+
 class ReminderStatus(str, Enum):
     SCHEDULED = "scheduled"
     FIRED = "fired"
@@ -78,6 +85,30 @@ class Task(Base):
     reminders: Mapped[list[Reminder]] = relationship("Reminder", back_populates="task", cascade="all, delete-orphan")
     events: Mapped[list[TaskEvent]] = relationship("TaskEvent", back_populates="task", cascade="all, delete-orphan")
     recurrence: Mapped[TaskRecurrence | None] = relationship("TaskRecurrence", back_populates="task", cascade="all, delete-orphan", uselist=False)
+    customer_materials: Mapped[list[CustomerMaterial]] = relationship("CustomerMaterial", back_populates="task")
+
+
+class CustomerMaterial(Base):
+    __tablename__ = "customer_materials"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    project: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    material_date: Mapped[datetime | None] = mapped_column(UTCDateTimeText(), nullable=True, index=True)
+    source_type: Mapped[str] = mapped_column(String(32), nullable=False, default="text", index=True)
+    source: Mapped[str] = mapped_column(String(32), nullable=False, default="chat")
+    source_refs_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    raw_source_markdown: Mapped[str | None] = mapped_column(Text, nullable=True)
+    candidate_markdown: Mapped[str | None] = mapped_column(Text, nullable=True)
+    value_types_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default=CustomerMaterialStatus.PENDING.value, index=True)
+    review_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    task_id: Mapped[int | None] = mapped_column(ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTimeText(), nullable=False, default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTimeText(), nullable=False, default=now_utc, onupdate=now_utc)
+    archived_at: Mapped[datetime | None] = mapped_column(UTCDateTimeText(), nullable=True, index=True)
+
+    task: Mapped[Task | None] = relationship("Task", back_populates="customer_materials")
 
 
 class Reminder(Base):

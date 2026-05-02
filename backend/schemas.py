@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import Any
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -106,6 +107,150 @@ def normalize_project_name(value: str | None) -> str | None:
         return None
     normalized = value.strip()
     return normalized or None
+
+
+CustomerMaterialStatusValue = Literal["pending", "approved", "skipped", "uploaded"]
+
+
+def normalize_string_list(value: list[str] | None) -> list[str]:
+    normalized: list[str] = []
+    if not value:
+        return normalized
+    for item in value:
+        text = str(item).strip()
+        if text and text not in normalized:
+            normalized.append(text)
+    return normalized
+
+
+def normalize_required_text(value: str | None, *, field_name: str) -> str:
+    normalized = (value or "").strip()
+    if not normalized:
+        raise ValueError(f"{field_name} cannot be empty")
+    return normalized
+
+
+class CustomerMaterialBase(BaseModel):
+    project: str = Field(..., min_length=1, max_length=128)
+    title: str = Field(..., min_length=1, max_length=255)
+    material_date: datetime | None = None
+    source_type: str = Field(default="text", max_length=32)
+    source: str = Field(default="chat", max_length=32)
+    source_refs: dict[str, Any] = Field(default_factory=dict)
+    raw_source_markdown: str | None = None
+    candidate_markdown: str | None = None
+    value_types: list[str] = Field(default_factory=list)
+    status: CustomerMaterialStatusValue = "pending"
+    review_note: str | None = None
+    task_id: int | None = None
+
+    @field_validator("project", mode="before")
+    @classmethod
+    def normalize_material_project(cls, value: str | None) -> str:
+        normalized = normalize_project_name(value)
+        if not normalized:
+            raise ValueError("project cannot be empty")
+        return normalized
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def normalize_title(cls, value: str | None) -> str:
+        return normalize_required_text(value, field_name="title")
+
+    @field_validator("source_type", mode="before")
+    @classmethod
+    def normalize_source_type(cls, value: str | None) -> str:
+        return (value or "").strip() or "text"
+
+    @field_validator("source", mode="before")
+    @classmethod
+    def normalize_source(cls, value: str | None) -> str:
+        return (value or "").strip() or "chat"
+
+    @field_validator("material_date", mode="before")
+    @classmethod
+    def normalize_material_date(cls, value: datetime | str | None) -> datetime | None:
+        return normalize_datetime_input(value)
+
+    @field_validator("value_types", mode="before")
+    @classmethod
+    def normalize_value_types(cls, value: list[str] | None) -> list[str]:
+        return normalize_string_list(value)
+
+
+class CustomerMaterialCreate(CustomerMaterialBase):
+    pass
+
+
+class CustomerMaterialUpdate(BaseModel):
+    project: str | None = Field(default=None, max_length=128)
+    title: str | None = Field(default=None, min_length=1, max_length=255)
+    material_date: datetime | None = None
+    source_type: str | None = Field(default=None, max_length=32)
+    source: str | None = Field(default=None, max_length=32)
+    source_refs: dict[str, Any] | None = None
+    raw_source_markdown: str | None = None
+    candidate_markdown: str | None = None
+    value_types: list[str] | None = None
+    status: CustomerMaterialStatusValue | None = None
+    review_note: str | None = None
+    task_id: int | None = None
+    clear_task: bool = False
+
+    @field_validator("project", mode="before")
+    @classmethod
+    def normalize_material_project(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = normalize_project_name(value)
+        if not normalized:
+            raise ValueError("project cannot be empty")
+        return normalized
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def normalize_title(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return normalize_required_text(value, field_name="title")
+
+    @field_validator("source_type", "source", mode="before")
+    @classmethod
+    def normalize_optional_short_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return value.strip() or None
+
+    @field_validator("material_date", mode="before")
+    @classmethod
+    def normalize_material_date(cls, value: datetime | str | None) -> datetime | None:
+        return normalize_datetime_input(value)
+
+    @field_validator("value_types", mode="before")
+    @classmethod
+    def normalize_value_types(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        return normalize_string_list(value)
+
+
+class CustomerMaterialRead(BaseModel):
+    id: int
+    project: str
+    title: str
+    material_date: datetime | None
+    source_type: str
+    source: str
+    source_refs: dict[str, Any]
+    raw_source_markdown: str | None
+    candidate_markdown: str | None
+    value_types: list[str]
+    status: str
+    review_note: str | None
+    task_id: int | None
+    created_at: datetime
+    updated_at: datetime
+    archived_at: datetime | None
 
 
 class TaskBase(BaseModel):

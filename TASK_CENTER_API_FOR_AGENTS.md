@@ -218,4 +218,62 @@ with urllib.request.urlopen(req, timeout=10) as resp:
 
 > task_center 负责“有没有这件事”；cron 负责“什么时候再叫你一次”。
 
+---
+
+## 9. 客户材料（NotebookLM 客户画像素材）
+
+当南哥在待办 / 客户跟进语境中提到**跟进过程、跟进结果、客户反馈、聊天截图、会议结论、交付卡点**时，除了更新任务本身，还应把可沉淀内容写入客户材料。
+
+### 9.1 创建客户材料
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/customer-materials \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "project": "客户_苏中药业",
+    "title": "淘宝黄葵胶囊价格监控风控问题",
+    "material_date": "2026-04-27T20:30:00",
+    "source_type": "task_completion",
+    "source": "chat",
+    "source_refs": {"message_id": "om_xxx", "task_id": 105},
+    "raw_source_markdown": "完整原始材料，尽量保留南哥原话、客户对话、截图 OCR/转写和不确定性标注。",
+    "candidate_markdown": "轻度清洗后的 NotebookLM 候选入库 Markdown。去掉晚间收口/用户反馈已完成等系统痕迹，但不要过度总结客户事实。",
+    "value_types": ["客户需求", "系统限制", "风险/阻塞", "解决方案"],
+    "task_id": 105
+  }'
+```
+
+### 9.2 查询客户材料
+
+```bash
+# 查询某客户未归档材料
+curl 'http://127.0.0.1:8000/api/customer-materials?project=客户_苏中药业'
+
+# 查询待审核材料
+curl 'http://127.0.0.1:8000/api/customer-materials?status=pending'
+
+# 查询某任务关联材料
+curl 'http://127.0.0.1:8000/api/tasks/105/customer-materials'
+```
+
+### 9.3 更新 / 审核 / 归档
+
+```bash
+# 修改材料正文或状态
+curl -X PATCH http://127.0.0.1:8000/api/customer-materials/1 \
+  -H 'Content-Type: application/json' \
+  -d '{"status":"approved", "review_note":"已确认可入库"}'
+
+# 软归档，默认列表不再返回；如需看归档材料，加 include_archived=true
+curl -X DELETE http://127.0.0.1:8000/api/customer-materials/1
+```
+
+### 9.4 字段规则
+
+- `project`：沿用现有客户标签 / 项目名，例如 `客户_苏中药业`。
+- `raw_source_markdown`：原始证据层，尽量完整保真；截图要转成多人对话文本，不能识别的图片标注“此处为图片”。
+- `candidate_markdown`：NotebookLM 候选入库层，只做轻度格式化和去系统痕迹，不替代原始材料。
+- `value_types`：可多选，建议值包括：客户需求、业务流程、系统限制、关键人信息、客户偏好、风险/阻塞、解决方案、商机/增购/续费、售后问题、可复用方法论。
+- `status`：`pending`（待审核）、`approved`（已确认）、`skipped`（已跳过）、`uploaded`（已上传）。
+
 如果二者冲突，以 task_center 最新任务时间为准，并立即修正 cron。
