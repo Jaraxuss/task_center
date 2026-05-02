@@ -1,0 +1,3 @@
+[submodule "mobile_frontend"]
+	path = mobile_frontend
+	url = git@github.com:Jaraxuss/task_center_mobile_frontend.git

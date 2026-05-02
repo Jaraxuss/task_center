@@ -10,5 +10,4 @@ frontend/.env
 frontend/*.tsbuildinfo
 backend/logs/
 frontend/logs/
-mobile_frontend/
 .DS_Store
