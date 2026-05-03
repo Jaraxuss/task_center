@@ -20,6 +20,8 @@
 - 文档契约 `docs/API_CONTRACT.md` 可参考，但若与真实行为冲突，以 `backend/main.py` + `backend/schemas.py` 为准。
 - 当前后端实际返回的是**裸对象 / 裸数组**，不是统一 `{data, meta}` 包装。
 - 日常提醒落账流程里，默认不先做 health 探测，直接调用业务接口。
+- 当前 `customer-materials` 已采用新模型为主、旧字段兼容模式。文档、agent、cron、skill **只公开调用 `/api/customer-materials`**，不再使用 `/api/customer-materials-v2`。
+- 即使你记得早先文档写过 `/api/customer-materials-v2`，也不要把当前调用改写成 `v2` 路径。
 
 ---
 
@@ -225,7 +227,38 @@ with urllib.request.urlopen(req, timeout=10) as resp:
 
 当南哥在待办 / 客户跟进语境中提到**跟进过程、跟进结果、客户反馈、聊天截图、会议结论、交付卡点**时，除了更新任务本身，还应把可沉淀内容写入客户材料。
 
+当前规则：
+- 客户材料的**唯一公开入口**是 `/api/customer-materials`。
+- `/api/customer-materials-v2` 已在契约层面废弃；文档、agent、cron、skill 不应再引用该路径，短期兼容别名也必须在文档之外维护。
+- 新模型字段（`customer_id`、`project_v2_id`、`review_batch_id`、`material_type`、`period_start`、`period_end`、`raw_facts_markdown`、`summary_markdown`、`insights_markdown`、`generation_meta`）为主字段。
+- 旧字段（`project`、`source_type`、`candidate_markdown`、`review_note`、`task_id`、`archived_at`）保留兼容，但不再作为新流程主字段。
+- 文档中所有示例都使用 `/api/customer-materials`；旧 `/api/customer-materials-v2` 仅保留在实现说明与迁移备注中，不作为调用示例。
+
+> 迁移提示：旧 `project` 仍保留兼容，但新流程优先通过 `customer_id` / `project_v2_id` / `review_batch_id` 定位客户材料。
+
 ### 9.1 创建客户材料
+
+#### 9.1.1 新模型（推荐）
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/customer-materials \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "customer_id": 1,
+    "project_v2_id": null,
+    "review_batch_id": 10,
+    "title": "佰世赛｜客户级｜2026-05-01 ~ 2026-05-07 客户事实与总结",
+    "material_type": "period_summary",
+    "period_start": "2026-05-01T00:00:00",
+    "period_end": "2026-05-07T23:59:59",
+    "raw_facts_markdown": "完整事实记录（不删减）...",
+    "summary_markdown": "简要纪要...",
+    "insights_markdown": "洞察 / 风险 / 下一步建议（AI 推导层）...",
+    "status": "pending"
+  }'
+```
+
+#### 9.1.2 旧模型（兼容，非推荐）
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/customer-materials \
@@ -238,7 +271,7 @@ curl -X POST http://127.0.0.1:8000/api/customer-materials \
     "source": "chat",
     "source_refs": {"message_id": "om_xxx", "task_id": 105},
     "raw_source_markdown": "完整原始材料，尽量保留南哥原话、客户对话、截图 OCR/转写和不确定性标注。",
-    "candidate_markdown": "轻度清洗后的 NotebookLM 候选入库 Markdown。去掉晚间收口/用户反馈已完成等系统痕迹，但不要过度总结客户事实。",
+    "candidate_markdown": "轻度清洗后的 NotebookLM 候选入库 Markdown。",
     "value_types": ["客户需求", "系统限制", "风险/阻塞", "解决方案"],
     "task_id": 105
   }'
@@ -247,23 +280,43 @@ curl -X POST http://127.0.0.1:8000/api/customer-materials \
 ### 9.2 查询客户材料
 
 ```bash
-# 查询某客户未归档材料
-curl 'http://127.0.0.1:8000/api/customer-materials?project=客户_苏中药业'
+# 按客户查询（推荐）
+curl 'http://127.0.0.1:8000/api/customer-materials?customer_id=1'
 
-# 查询待审核材料
+# 按审核批次查询（推荐）
+curl 'http://127.0.0.1:8000/api/customer-materials?review_batch_id=10'
+
+# 按状态查询
 curl 'http://127.0.0.1:8000/api/customer-materials?status=pending'
 
-# 查询某任务关联材料
+# 按旧项目标签兼容查询
+curl 'http://127.0.0.1:8000/api/customer-materials?project=客户_苏中药业'
+
+# 按任务关联查询（兼容）
 curl 'http://127.0.0.1:8000/api/tasks/105/customer-materials'
 ```
 
 ### 9.3 更新 / 审核 / 归档
 
 ```bash
-# 修改材料正文或状态
+# 审核通过
 curl -X PATCH http://127.0.0.1:8000/api/customer-materials/1 \
   -H 'Content-Type: application/json' \
-  -d '{"status":"approved", "review_note":"已确认可入库"}'
+  -d '{"status": "approved"}'
+
+# 更新新模型主字段
+curl -X PATCH http://127.0.0.1:8000/api/customer-materials/1 \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "title": "佰世赛｜客户级｜2026-05-01 ~ 2026-05-07 客户事实与总结",
+    "summary_markdown": "更新后的纪要",
+    "insights_markdown": "更新后的洞察"
+  }'
+
+# 兼容旧字段修改（非新流程推荐）
+curl -X PATCH http://127.0.0.1:8000/api/customer-materials/1 \
+  -H 'Content-Type: application/json' \
+  -d '{"status": "approved", "review_note": "已确认可入库"}'
 
 # 软归档，默认列表不再返回；如需看归档材料，加 include_archived=true
 curl -X DELETE http://127.0.0.1:8000/api/customer-materials/1
@@ -271,11 +324,52 @@ curl -X DELETE http://127.0.0.1:8000/api/customer-materials/1
 
 ### 9.4 字段规则
 
-- `project`：沿用现有客户标签 / 项目名，例如 `客户_苏中药业`。
-- `raw_source_markdown`：原始证据层，尽量完整保真；截图要转成多人对话文本，不能识别的图片标注“此处为图片”。
-- `candidate_markdown`：NotebookLM 候选入库层，只做轻度格式化和去系统痕迹，不替代原始材料。
-- `value_types`：可多选，建议值包括：客户需求、业务流程、系统限制、关键人信息、客户偏好、风险/阻塞、解决方案、商机/增购/续费、售后问题、可复用方法论。
-- `status`：`pending`（待审核）、`approved`（已确认）、`skipped`（已跳过）、`uploaded`（已上传）。
+#### 新模型字段（主字段）
+- `customer_id`：推荐，关联客户主键。
+- `project_v2_id`：可选，关联新项目主键。
+- `review_batch_id`：可选，关联审核批次；用于周期材料归集。
+- `material_type`：可选，默认 `period_summary`；建议值：`period_summary` / `fact_bundle` / `meeting_note` / `project_digest`。
+- `period_start` / `period_end`：可选，周期区间。
+- `raw_facts_markdown`：推荐，完整事实层；不要删减客户原话、截图转写、不确定性标注。
+- `summary_markdown`：推荐，简要纪要层。
+- `insights_markdown`：推荐，AI 推导层；上传 NotebookLM 时需显式标注为"洞察 / 风险 / 下一步建议"。
+- `generation_meta`：可选，JSON 对象，记录生成参数与过程元信息。
+
+#### 旧字段（兼容层）
+- `project`：兼容，仍可查询，但不再作为新流程主定位字段。
+- `material_date` / `source_type` / `source_refs` / `candidate_markdown` / `value_types` / `review_note` / `task_id` / `archived_at`：保留兼容，但不应作为新流程主字段。
+
+#### 常用状态
+- `pending`：待审核
+- `approved`：已确认
+- `skipped`：已跳过
+- `uploaded`：已上传
+
+如果二者冲突，以 task_center 最新任务时间为准，并立即修正 cron。
+
+### 9.5 标记已上传 / 材料关联 Facts
+
+后续 agent/cron/skill 只允许调用 `/api/customer-materials/{id}/...`，不应再使用 `/api/customer-materials-v2`。
+
+```bash
+# 标记已上传
+POST /api/customer-materials/{id}/mark-uploaded
+
+# 添加材料关联 facts
+POST /api/customer-materials/{id}/facts
+
+curl -X POST http://127.0.0.1:8000/api/customer-materials/1/facts \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "fact_id": 42,
+    "sort_order": 1
+  }'
+
+# 查询材料关联 facts
+GET /api/customer-materials/{id}/facts
+
+curl http://127.0.0.1:8000/api/customer-materials/1/facts
+```
 
 如果二者冲突，以 task_center 最新任务时间为准，并立即修正 cron。
 
@@ -402,21 +496,50 @@ DELETE /api/facts/{id}
 
 **value_types 建议值：** 客户需求、业务流程、系统限制、关键人信息、客户偏好、风险/阻塞、解决方案、商机/增购/续费、售后问题、交付结果、可复用方法论
 
-### 10.6 Customer Materials API（改造后）
+### 10.6 Customer Materials API（唯一公开入口）
 
-保留现有路径 `/api/customer-materials`，迁移到新字段。旧字段（`source_type`、`candidate_markdown`、`review_note`、`task_id`、`archived_at` 等）物理保留但不再使用。
+公开契约：只调用 `/api/customer-materials`；`/api/customer-materials-v2` 已从文档中移除，不应再出现在 agent/cron/skill 调用中。
+
+#### 字段说明
+
+**新模型字段（主字段）**
+- `customer_id`（推荐）
+- `project_v2_id`（可选）
+- `review_batch_id`（可选）
+- `title`（必填）
+- `material_type`（可选，默认 `period_summary`）
+- `period_start` / `period_end`（可选）
+- `raw_facts_markdown`（推荐）
+- `summary_markdown`（推荐）
+- `insights_markdown`（推荐）
+- `generation_meta`（可选 JSON 对象）
+- `status`（可选）
+
+**旧字段（兼容层，不作为新流程主字段）**
+- `project`
+- `material_date`
+- `source_type`
+- `source_refs`
+- `raw_source_markdown`
+- `candidate_markdown`
+- `value_types`
+- `review_note`
+- `task_id`
+- `archived_at`
+
+#### 最小调用示例
 
 ```bash
-# 列表（支持 customer_id、project_id、review_batch_id、status、material_type）
-GET /api/customer-materials?customer_id=1&status=pending
+# 列表（推荐新字段筛选）
+GET /api/customer-materials?customer_id=1&review_batch_id=10&status=pending&material_type=period_summary
 
-# 创建材料
+# 创建材料（新模型）
 POST /api/customer-materials
 curl -X POST http://127.0.0.1:8000/api/customer-materials \
   -H 'Content-Type: application/json' \
   -d '{
     "customer_id": 1,
-    "project_id": null,
+    "project_v2_id": null,
     "review_batch_id": 1,
     "title": "佰世赛｜客户级｜2026-05-01 ~ 2026-05-07 客户事实与总结",
     "material_type": "period_summary",
@@ -424,32 +547,62 @@ curl -X POST http://127.0.0.1:8000/api/customer-materials \
     "period_end": "2026-05-07T23:59:59",
     "raw_facts_markdown": "完整事实记录（不删减）...",
     "summary_markdown": "简要纪要...",
-    "insights_markdown": "洞察/风险/下一步建议（AI 推导层）...",
+    "insights_markdown": "洞察 / 风险 / 下一步建议（AI 推导层）...",
     "status": "pending"
   }'
 
 # 详情
 GET /api/customer-materials/{id}
 
-# 审核/更新
+# 审核/更新（新模型主字段）
 PATCH /api/customer-materials/{id}
 curl -X PATCH http://127.0.0.1:8000/api/customer-materials/1 \
   -H 'Content-Type: application/json' \
-  -d '{"status": "approved"}'
+  -d '{
+    "status": "approved",
+    "summary_markdown": "更新后的纪要",
+    "insights_markdown": "更新后的洞察"
+  }'
 
 # 标记已上传（上传 NotebookLM 成功后调用）
 POST /api/customer-materials/{id}/mark-uploaded
+
+# 添加材料关联 facts
+POST /api/customer-materials/{id}/facts
+curl -X POST http://127.0.0.1:8000/api/customer-materials/1/facts \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "fact_id": 42,
+    "sort_order": 1
+  }'
+
+# 查询材料关联 facts
+GET /api/customer-materials/{id}/facts
+curl http://127.0.0.1:8000/api/customer-materials/1/facts
 ```
 
-**material_type 可选值：** `period_summary` / `fact_bundle` / `meeting_note` / `project_digest`
+#### 状态与类型
 
-**status 流转：** `pending` → `approved` → `uploaded`（或 `skipped`）
+- `material_type` 可选值：`period_summary` / `fact_bundle` / `meeting_note` / `project_digest`
+- `status` 流转：`pending` → `approved` → `uploaded`（或 `skipped`）
+
+#### 旧参数迁移提示
+
+| 旧筛选参数 | 当前状态 | 推荐迁移 |
+|---|---|---|
+| `project` | 仍支持 | 优先 `customer_id` / `project_v2_id` / `review_batch_id` |
+| `task_id` | 仍支持 | 新流程不再作为主字段 |
+| `value_type` | 仍支持 | 仅用于旧材料筛选 |
+| `q` / `status` / `include_archived` / `limit` | 仍支持 | 继续使用 |
+
+> 当前 `POST /api/customer-materials/{id}/mark-uploaded`、`POST /api/customer-materials/{id}/facts`、`GET /api/customer-materials/{id}/facts` 已统一到 `/api/customer-materials/{id}/...` 路径。agent 不应再使用 `/api/customer-materials-v2`。
 
 ### 10.7 Review Batches API
 
 ```bash
 # 列表
 GET /api/review-batches
+curl http://127.0.0.1:8000/api/review-batches
 
 # 创建批次
 POST /api/review-batches
@@ -466,9 +619,15 @@ curl -X POST http://127.0.0.1:8000/api/review-batches \
 
 # 详情
 GET /api/review-batches/{id}
+curl http://127.0.0.1:8000/api/review-batches/1
 
-# 查看批次下的材料
+# 查看批次下的材料（统一返回 CustomerMaterial）
 GET /api/review-batches/{id}/customer-materials
+curl http://127.0.0.1:8000/api/review-batches/1/customer-materials
+
+# 等价查询方式
+GET /api/customer-materials?review_batch_id=1
+curl 'http://127.0.0.1:8000/api/customer-materials?review_batch_id=1'
 
 # 更新批次状态
 PATCH /api/review-batches/{id}
@@ -478,6 +637,8 @@ curl -X PATCH http://127.0.0.1:8000/api/review-batches/1 \
 ```
 
 **batch_type 可选值：** `weekly_customer_summary` / `daily_customer_summary` / `manual_generation`
+
+> 当前 `/api/review-batches/{id}/customer-materials` 已统一返回 `CustomerMaterialRead` schema，避免 agent 需要同时理解两套返回结构。
 
 ### 10.8 Tasks 新增字段
 

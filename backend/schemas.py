@@ -142,7 +142,7 @@ def normalize_required_text(value: str | None, *, field_name: str) -> str:
 
 
 class CustomerMaterialBase(BaseModel):
-    project: str = Field(..., min_length=1, max_length=128)
+    project: str | None = Field(default=None, max_length=128)
     title: str = Field(..., min_length=1, max_length=255)
     material_date: datetime | None = None
     source_type: str = Field(default="text", max_length=32)
@@ -154,10 +154,23 @@ class CustomerMaterialBase(BaseModel):
     status: CustomerMaterialStatusValue = "pending"
     review_note: str | None = None
     task_id: int | None = None
+    # V2 fields (consolidated into main schema per API consolidation plan)
+    customer_id: int | None = None
+    project_v2_id: int | None = None
+    review_batch_id: int | None = None
+    material_type: MaterialTypeValue = "period_summary"
+    period_start: datetime | None = None
+    period_end: datetime | None = None
+    raw_facts_markdown: str | None = None
+    summary_markdown: str | None = None
+    insights_markdown: str | None = None
+    generation_meta: dict[str, Any] | None = None
 
     @field_validator("project", mode="before")
     @classmethod
-    def normalize_material_project(cls, value: str | None) -> str:
+    def normalize_material_project(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         normalized = normalize_project_name(value)
         if not normalized:
             raise ValueError("project cannot be empty")
@@ -188,6 +201,17 @@ class CustomerMaterialBase(BaseModel):
     def normalize_value_types(cls, value: list[str] | None) -> list[str]:
         return normalize_string_list(value)
 
+    @field_validator("period_start", "period_end", mode="before")
+    @classmethod
+    def normalize_period_dt(cls, value: datetime | str | None) -> datetime | None:
+        return normalize_datetime_input(value)
+
+    @model_validator(mode="after")
+    def require_legacy_project_or_customer(self) -> "CustomerMaterialBase":
+        if self.project is None and self.customer_id is None:
+            raise ValueError("project or customer_id is required")
+        return self
+
 
 class CustomerMaterialCreate(CustomerMaterialBase):
     pass
@@ -207,6 +231,19 @@ class CustomerMaterialUpdate(BaseModel):
     review_note: str | None = None
     task_id: int | None = None
     clear_task: bool = False
+    # V2 fields
+    customer_id: int | None = None
+    project_v2_id: int | None = None
+    review_batch_id: int | None = None
+    material_type: MaterialTypeValue | None = None
+    period_start: datetime | None = None
+    period_end: datetime | None = None
+    raw_facts_markdown: str | None = None
+    summary_markdown: str | None = None
+    insights_markdown: str | None = None
+    generation_meta: dict[str, Any] | None = None
+    clear_project_v2: bool = False
+    clear_batch: bool = False
 
     @field_validator("project", mode="before")
     @classmethod
@@ -247,7 +284,7 @@ class CustomerMaterialUpdate(BaseModel):
 
 class CustomerMaterialRead(BaseModel):
     id: int
-    project: str
+    project: str | None
     title: str
     material_date: datetime | None
     source_type: str
@@ -262,6 +299,17 @@ class CustomerMaterialRead(BaseModel):
     created_at: datetime
     updated_at: datetime
     archived_at: datetime | None
+    # V2 fields
+    customer_id: int | None = None
+    project_v2_id: int | None = None
+    review_batch_id: int | None = None
+    material_type: str | None = None
+    period_start: datetime | None = None
+    period_end: datetime | None = None
+    raw_facts_markdown: str | None = None
+    summary_markdown: str | None = None
+    insights_markdown: str | None = None
+    generation_meta: dict[str, Any] | None = None
 
 
 class TaskBase(BaseModel):
