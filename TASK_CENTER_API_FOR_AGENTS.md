@@ -2,9 +2,10 @@
 
 给代理 / 脚本 / 自动化流程使用的 task_center 实操文档。
 
-目标只有一个：
+两件核心事：
 
-> 当用户提出提醒、待办、改时间、完成、取消等请求时，先把事实落进 task_center，再默认同步 OpenClaw cron。
+> 1. 当用户提出提醒、待办、改时间、完成、取消等请求时，先把事实落进 task_center，再默认同步 OpenClaw cron。
+> 2. 当用户提到客户跟进信息时，按 `task-center-customer-knowledge` Skill 写入客户事实、周期生成材料、审核后上传 NotebookLM。
 
 ---
 
@@ -277,3 +278,239 @@ curl -X DELETE http://127.0.0.1:8000/api/customer-materials/1
 - `status`：`pending`（待审核）、`approved`（已确认）、`skipped`（已跳过）、`uploaded`（已上传）。
 
 如果二者冲突，以 task_center 最新任务时间为准，并立即修正 cron。
+
+---
+
+## 10. 客户知识模块（customers / projects / facts / materials / batches）
+
+### 10.1 概述
+
+TaskCenter 新增了客户知识模块，支持从日常跟进中采集客户事实（facts），周期生成客户材料（customer_materials），审核后上传 NotebookLM。
+
+**完整规则详见 Skill：** `skills/task-center-customer-knowledge/SKILL.md`
+
+本节只补充 API 接口速查。若本节与 Skill 冲突，以 Skill 为准；若二者与后端代码冲突，以 `main.py` + `schemas.py` + `models.py` 为准。
+
+### 10.2 不改的部分（重要）
+
+- **不使用 feishu-task Skill**：当前不使用飞书任务机制，提醒靠 OpenClaw cron。
+- **不修改 nblm Skill**：nblm 是第三方基础能力，只在上传链路调用其 `upload-text` 等命令。
+- **不自动上传 NotebookLM**：必须等南哥审核确认后才上传。
+
+### 10.3 Customers API
+
+```bash
+# 列表（支持 q、status 筛选）
+GET /api/customers?q=佰&status=active
+
+# 创建客户
+POST /api/customers
+# 若未传 area，默认生成 "客户_{name}"。
+# 若未传 aliases，默认加入 area。
+curl -X POST http://127.0.0.1:8000/api/customers \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "佰世赛",
+    "key": "baishisai",
+    "aliases": ["客户_佰世赛", "BSS"],
+    "area": "客户_佰世赛",
+    "tags": ["客户"]
+  }'
+
+# 详情
+GET /api/customers/{id}
+
+# 更新
+PATCH /api/customers/{id}
+curl -X PATCH http://127.0.0.1:8000/api/customers/1 \
+  -H 'Content-Type: application/json' \
+  -d '{"status": "paused", "description": "暂停跟进"}'
+```
+
+### 10.4 Projects API
+
+注意：新项目 API 路径为 `/api/projects-v2`，区别于旧的 `/api/projects`（旧接口保持不动）。
+
+```bash
+# 列表（支持 customer_id、area、status、q）
+GET /api/projects-v2?customer_id=1&status=active
+
+# 创建项目
+POST /api/projects-v2
+# 若有 customer_id 且未传 area，后端继承 customer.area。
+curl -X POST http://127.0.0.1:8000/api/projects-v2 \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "customer_id": 1,
+    "project_type": "customer",
+    "name": "处理 3 个账号增购合同流程",
+    "area": "客户_佰世赛",
+    "tags": ["增购", "合同"]
+  }'
+
+# 详情
+GET /api/projects-v2/{id}
+
+# 更新
+PATCH /api/projects-v2/{id}
+curl -X PATCH http://127.0.0.1:8000/api/projects-v2/1 \
+  -H 'Content-Type: application/json' \
+  -d '{"status": "done"}'
+```
+
+### 10.5 Facts API
+
+事实（facts）是 NotebookLM 的主要原始内容来源。写入规则：
+- 用户明确说"记录一下" → status=`confirmed`
+- 自动提取（任务完成、截图、会议纪要等） → status=`draft`
+- 系统操作痕迹、提醒本身、无客户价值流水账 → **不写 fact**
+
+```bash
+# 列表（支持 customer_id、project_id、task_id、status、source_type、from、to、q）
+GET /api/facts?customer_id=1&status=draft&from=2026-05-01&to=2026-05-07
+
+# 创建事实
+POST /api/facts
+curl -X POST http://127.0.0.1:8000/api/facts \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "customer_id": 1,
+    "project_id": null,
+    "task_id": null,
+    "fact_date": "2026-05-03T14:30:00",
+    "title": "佰世赛提出增购 5 个账号",
+    "raw_markdown": "客户反馈：由于业务扩张，需要在月底前增购 5 个账号。",
+    "source_type": "chat",
+    "value_types": ["客户需求", "商机/增购/续费"],
+    "status": "confirmed"
+  }'
+
+# 详情
+GET /api/facts/{id}
+
+# 更新（改状态/内容/归属）
+PATCH /api/facts/{id}
+curl -X PATCH http://127.0.0.1:8000/api/facts/1 \
+  -H 'Content-Type: application/json' \
+  -d '{"status": "confirmed", "raw_markdown": "更新后内容"}'
+
+# 删除（建议改 status=rejected，不硬删）
+DELETE /api/facts/{id}
+```
+
+**source_type 可选值：** `chat` / `screenshot_ocr` / `task_completion` / `meeting_note` / `manual_input` / `forwarded_message` / `document`
+
+**value_types 建议值：** 客户需求、业务流程、系统限制、关键人信息、客户偏好、风险/阻塞、解决方案、商机/增购/续费、售后问题、交付结果、可复用方法论
+
+### 10.6 Customer Materials API（改造后）
+
+保留现有路径 `/api/customer-materials`，迁移到新字段。旧字段（`source_type`、`candidate_markdown`、`review_note`、`task_id`、`archived_at` 等）物理保留但不再使用。
+
+```bash
+# 列表（支持 customer_id、project_id、review_batch_id、status、material_type）
+GET /api/customer-materials?customer_id=1&status=pending
+
+# 创建材料
+POST /api/customer-materials
+curl -X POST http://127.0.0.1:8000/api/customer-materials \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "customer_id": 1,
+    "project_id": null,
+    "review_batch_id": 1,
+    "title": "佰世赛｜客户级｜2026-05-01 ~ 2026-05-07 客户事实与总结",
+    "material_type": "period_summary",
+    "period_start": "2026-05-01T00:00:00",
+    "period_end": "2026-05-07T23:59:59",
+    "raw_facts_markdown": "完整事实记录（不删减）...",
+    "summary_markdown": "简要纪要...",
+    "insights_markdown": "洞察/风险/下一步建议（AI 推导层）...",
+    "status": "pending"
+  }'
+
+# 详情
+GET /api/customer-materials/{id}
+
+# 审核/更新
+PATCH /api/customer-materials/{id}
+curl -X PATCH http://127.0.0.1:8000/api/customer-materials/1 \
+  -H 'Content-Type: application/json' \
+  -d '{"status": "approved"}'
+
+# 标记已上传（上传 NotebookLM 成功后调用）
+POST /api/customer-materials/{id}/mark-uploaded
+```
+
+**material_type 可选值：** `period_summary` / `fact_bundle` / `meeting_note` / `project_digest`
+
+**status 流转：** `pending` → `approved` → `uploaded`（或 `skipped`）
+
+### 10.7 Review Batches API
+
+```bash
+# 列表
+GET /api/review-batches
+
+# 创建批次
+POST /api/review-batches
+curl -X POST http://127.0.0.1:8000/api/review-batches \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "batch_type": "weekly_customer_summary",
+    "title": "2026-05-03 客户周期材料",
+    "period_start": "2026-05-01T00:00:00",
+    "period_end": "2026-05-07T23:59:59",
+    "material_count": 3,
+    "created_by": "cron"
+  }'
+
+# 详情
+GET /api/review-batches/{id}
+
+# 查看批次下的材料
+GET /api/review-batches/{id}/customer-materials
+
+# 更新批次状态
+PATCH /api/review-batches/{id}
+curl -X PATCH http://127.0.0.1:8000/api/review-batches/1 \
+  -H 'Content-Type: application/json' \
+  -d '{"status": "approved"}'
+```
+
+**batch_type 可选值：** `weekly_customer_summary` / `daily_customer_summary` / `manual_generation`
+
+### 10.8 Tasks 新增字段
+
+`tasks` 表新增以下字段（旧字段保留兼容）：
+
+| 新字段 | 类型 | 说明 |
+|---|---|---|
+| `area` | string(128) nullable | 归属分类，替代旧 `project` 的真实语义 |
+| `customer_id` | integer FK nullable | 关联客户 |
+| `project_id` | integer FK nullable | 关联项目 |
+
+旧 `project` 字段保留，兼容旧 API 和前端。创建/更新任务时：如果只传旧 `project`，后端兼容写入 `area`；返回时也保留旧 `project` 字段。
+
+### 10.9 上传 NotebookLM 的拼接模板
+
+审核通过后，上传到 NotebookLM 的 Markdown 按此模板拼接：
+
+```markdown
+# {customer.name}｜{project.name 或 "客户级"}｜{period_start} ~ {period_end} 客户事实与总结
+
+## 一、完整事实记录
+
+{raw_facts_markdown}
+
+## 二、简要纪要
+
+{summary_markdown}
+
+## 三、洞察 / 风险 / 下一步建议
+
+{insights_markdown}
+```
+
+规则：三层结构不能合并、不能删减；`insights_markdown` 必须明确标注为 AI 推导层。上传时使用 nblm 的 `upload-text` 命令，靠客户名匹配 Notebook。
+
+---

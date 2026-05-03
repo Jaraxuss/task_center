@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from models import ReminderStatus, TaskStatus
+from models import FactSourceType, FactStatus, CustomerMaterialStatus, CustomerStatus, MaterialType, ProjectStatus, ProjectType, ReminderStatus, ReviewBatchStatus, ReviewBatchType, TaskStatus
 from recurrence import normalize_days_of_week, normalize_time_of_day, validate_recurrence_payload
 from timeutils import APP_TIMEZONE, to_utc_datetime
 
@@ -110,6 +110,17 @@ def normalize_project_name(value: str | None) -> str | None:
 
 
 CustomerMaterialStatusValue = Literal["pending", "approved", "skipped", "uploaded"]
+CustomerStatusValue = Literal["active", "paused", "closed"]
+ProjectStatusValue = Literal["active", "waiting", "done", "canceled"]
+ProjectTypeValue = Literal["customer", "personal", "internal"]
+FactStatusValue = Literal["draft", "confirmed", "rejected"]
+FactSourceTypeValue = Literal[
+    "chat", "screenshot_ocr", "task_completion",
+    "meeting_note", "manual_input", "forwarded_message", "document",
+]
+MaterialTypeValue = Literal["period_summary", "fact_bundle", "meeting_note", "project_digest"]
+ReviewBatchStatusValue = Literal["pending", "partial", "approved", "uploaded"]
+ReviewBatchTypeValue = Literal["weekly_customer_summary", "daily_customer_summary", "manual_generation"]
 
 
 def normalize_string_list(value: list[str] | None) -> list[str]:
@@ -258,6 +269,9 @@ class TaskBase(BaseModel):
     description: str | None = None
     due_at: datetime | None = None
     project: str | None = Field(default=None, max_length=128)
+    area: str | None = Field(default=None, max_length=128)
+    customer_id: int | None = None
+    project_id: int | None = None
     tags: list[str] = Field(default_factory=list)
     source: str = "web"
 
@@ -277,26 +291,9 @@ class TaskCreate(TaskBase):
     recurrence: TaskRecurrenceWrite | None = None
 
 
-class TaskUpdate(BaseModel):
-    title: str | None = Field(default=None, min_length=1, max_length=255)
-    description: str | None = None
-    due_at: datetime | None = None
-    project: str | None = Field(default=None, max_length=128)
-    tags: list[str] | None = None
-    source: str | None = None
-    status: str | None = None
-    recurrence: TaskRecurrenceWrite | None = None
-    clear_recurrence: bool = False
-
-    @field_validator("project", mode="before")
-    @classmethod
-    def normalize_project(cls, value: str | None) -> str | None:
-        return normalize_project_name(value)
-
-    @field_validator("due_at", mode="before")
-    @classmethod
-    def normalize_due_at(cls, value: datetime | str | None) -> datetime | None:
-        return normalize_datetime_input(value)
+class TaskUpdateCompat(BaseModel):
+    """Old TaskUpdate – kept for reference. The actual TaskUpdate now includes v2 fields."""
+    pass
 
 
 class TaskActionComplete(BaseModel):
@@ -353,6 +350,9 @@ class TaskRead(BaseModel):
     due_at: datetime | None
     status: str
     project: str | None
+    area: str | None
+    customer_id: int | None
+    project_id: int | None
     tags: list[str]
     source: str
     created_at: datetime
@@ -488,3 +488,452 @@ class NightlyReviewPlaceholder(BaseModel):
     supported: bool = True
     note: str
     pending_candidates: int
+
+
+# ────────────────────────────────────────────────────────────────────
+# V2 schemas: Customers, Projects (new model), Facts, ReviewBatches,
+# CustomerMaterialFacts
+# ────────────────────────────────────────────────────────────────────
+
+
+class CustomerCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=128)
+    key: str | None = Field(default=None, max_length=64)
+    aliases: list[str] = Field(default_factory=list)
+    status: CustomerStatusValue = "active"
+    description: str | None = None
+    area: str | None = Field(default=None, max_length=128)
+    tags: list[str] = Field(default_factory=list)
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def normalize_name(cls, v: str | None) -> str:
+        v = (v or "").strip()
+        if not v:
+            raise ValueError("name cannot be empty")
+        return v
+
+    @field_validator("key", mode="before")
+    @classmethod
+    def normalize_key(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip()
+        return v or None
+
+    @field_validator("area", mode="before")
+    @classmethod
+    def normalize_area(cls, v: str | None) -> str | None:
+        return normalize_project_name(v)
+
+    @field_validator("aliases", "tags", mode="before")
+    @classmethod
+    def normalize_str_list(cls, v: list[str] | None) -> list[str]:
+        return normalize_string_list(v)
+
+
+class CustomerUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=128)
+    key: str | None = Field(default=None, max_length=64)
+    aliases: list[str] | None = None
+    status: CustomerStatusValue | None = None
+    description: str | None = None
+    area: str | None = Field(default=None, max_length=128)
+    tags: list[str] | None = None
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def normalize_name(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip()
+        if not v:
+            raise ValueError("name cannot be empty")
+        return v
+
+    @field_validator("key", mode="before")
+    @classmethod
+    def normalize_key(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip()
+        return v or None
+
+    @field_validator("area", mode="before")
+    @classmethod
+    def normalize_area(cls, v: str | None) -> str | None:
+        return normalize_project_name(v)
+
+    @field_validator("aliases", "tags", mode="before")
+    @classmethod
+    def normalize_str_list(cls, v: list[str] | None) -> list[str] | None:
+        if v is None:
+            return None
+        return normalize_string_list(v)
+
+
+class CustomerRead(BaseModel):
+    id: int
+    name: str
+    key: str | None
+    aliases: list[str]
+    status: str
+    description: str | None
+    area: str | None
+    tags: list[str]
+    created_at: datetime
+    updated_at: datetime
+
+
+class ProjectV2Create(BaseModel):
+    customer_id: int | None = None
+    project_type: ProjectTypeValue = "customer"
+    name: str = Field(..., min_length=1, max_length=255)
+    status: ProjectStatusValue = "active"
+    area: str | None = Field(default=None, max_length=128)
+    tags: list[str] = Field(default_factory=list)
+    start_at: datetime | None = None
+    target_end_at: datetime | None = None
+    actual_end_at: datetime | None = None
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def normalize_name(cls, v: str | None) -> str:
+        v = (v or "").strip()
+        if not v:
+            raise ValueError("name cannot be empty")
+        return v
+
+    @field_validator("area", mode="before")
+    @classmethod
+    def normalize_area(cls, v: str | None) -> str | None:
+        return normalize_project_name(v)
+
+    @field_validator("start_at", "target_end_at", "actual_end_at", mode="before")
+    @classmethod
+    def normalize_dt(cls, v: datetime | str | None) -> datetime | None:
+        return normalize_datetime_input(v)
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def normalize_tags(cls, v: list[str] | None) -> list[str]:
+        return normalize_string_list(v)
+
+
+class ProjectV2Update(BaseModel):
+    customer_id: int | None = None
+    project_type: ProjectTypeValue | None = None
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    status: ProjectStatusValue | None = None
+    area: str | None = Field(default=None, max_length=128)
+    tags: list[str] | None = None
+    start_at: datetime | None = None
+    target_end_at: datetime | None = None
+    actual_end_at: datetime | None = None
+    clear_customer: bool = False
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def normalize_name(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip()
+        if not v:
+            raise ValueError("name cannot be empty")
+        return v
+
+    @field_validator("area", mode="before")
+    @classmethod
+    def normalize_area(cls, v: str | None) -> str | None:
+        return normalize_project_name(v)
+
+    @field_validator("start_at", "target_end_at", "actual_end_at", mode="before")
+    @classmethod
+    def normalize_dt(cls, v: datetime | str | None) -> datetime | None:
+        return normalize_datetime_input(v)
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def normalize_tags(cls, v: list[str] | None) -> list[str] | None:
+        if v is None:
+            return None
+        return normalize_string_list(v)
+
+
+class ProjectV2Read(BaseModel):
+    id: int
+    customer_id: int | None
+    project_type: str
+    name: str
+    status: str
+    area: str | None
+    tags: list[str]
+    start_at: datetime | None
+    target_end_at: datetime | None
+    actual_end_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class FactCreate(BaseModel):
+    customer_id: int | None = None
+    project_id: int | None = None
+    task_id: int | None = None
+    fact_date: datetime
+    title: str = Field(..., min_length=1, max_length=255)
+    raw_markdown: str = Field(..., min_length=1)
+    source_type: FactSourceTypeValue = "manual_input"
+    value_types: list[str] = Field(default_factory=list)
+    status: FactStatusValue = "draft"
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def normalize_title(cls, v: str | None) -> str:
+        v = (v or "").strip()
+        if not v:
+            raise ValueError("title cannot be empty")
+        return v
+
+    @field_validator("raw_markdown", mode="before")
+    @classmethod
+    def normalize_raw(cls, v: str | None) -> str:
+        v = (v or "").strip()
+        if not v:
+            raise ValueError("raw_markdown cannot be empty")
+        return v
+
+    @field_validator("fact_date", mode="before")
+    @classmethod
+    def normalize_dt(cls, v: datetime | str | None) -> datetime:
+        dt = normalize_datetime_input(v)
+        if dt is None:
+            raise ValueError("fact_date is required")
+        return dt
+
+    @field_validator("value_types", mode="before")
+    @classmethod
+    def normalize_vt(cls, v: list[str] | None) -> list[str]:
+        return normalize_string_list(v)
+
+
+class FactUpdate(BaseModel):
+    customer_id: int | None = None
+    project_id: int | None = None
+    task_id: int | None = None
+    fact_date: datetime | None = None
+    title: str | None = Field(default=None, min_length=1, max_length=255)
+    raw_markdown: str | None = None
+    source_type: FactSourceTypeValue | None = None
+    value_types: list[str] | None = None
+    status: FactStatusValue | None = None
+    clear_customer: bool = False
+    clear_project: bool = False
+    clear_task: bool = False
+
+    @field_validator("fact_date", mode="before")
+    @classmethod
+    def normalize_dt(cls, v: datetime | str | None) -> datetime | None:
+        return normalize_datetime_input(v)
+
+    @field_validator("value_types", mode="before")
+    @classmethod
+    def normalize_vt(cls, v: list[str] | None) -> list[str] | None:
+        if v is None:
+            return None
+        return normalize_string_list(v)
+
+
+class FactRead(BaseModel):
+    id: int
+    customer_id: int | None
+    project_id: int | None
+    task_id: int | None
+    fact_date: datetime
+    title: str
+    raw_markdown: str
+    source_type: str
+    value_types: list[str]
+    status: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class CustomerMaterialFactRead(BaseModel):
+    id: int
+    material_id: int
+    fact_id: int
+    sort_order: int
+    created_at: datetime
+
+
+class CustomerMaterialFactCreate(BaseModel):
+    fact_id: int
+    sort_order: int = 0
+
+
+class ReviewBatchCreate(BaseModel):
+    batch_type: ReviewBatchTypeValue = "weekly_customer_summary"
+    title: str = Field(..., min_length=1, max_length=255)
+    period_start: datetime | None = None
+    period_end: datetime | None = None
+    status: ReviewBatchStatusValue = "pending"
+    material_count: int = 0
+    created_by: str = "manual"
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def normalize_title(cls, v: str | None) -> str:
+        v = (v or "").strip()
+        if not v:
+            raise ValueError("title cannot be empty")
+        return v
+
+    @field_validator("period_start", "period_end", mode="before")
+    @classmethod
+    def normalize_dt(cls, v: datetime | str | None) -> datetime | None:
+        return normalize_datetime_input(v)
+
+
+class ReviewBatchUpdate(BaseModel):
+    batch_type: ReviewBatchTypeValue | None = None
+    title: str | None = Field(default=None, min_length=1, max_length=255)
+    period_start: datetime | None = None
+    period_end: datetime | None = None
+    status: ReviewBatchStatusValue | None = None
+    material_count: int | None = None
+    created_by: str | None = None
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def normalize_title(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip()
+        if not v:
+            raise ValueError("title cannot be empty")
+        return v
+
+    @field_validator("period_start", "period_end", mode="before")
+    @classmethod
+    def normalize_dt(cls, v: datetime | str | None) -> datetime | None:
+        return normalize_datetime_input(v)
+
+
+class ReviewBatchRead(BaseModel):
+    id: int
+    batch_type: str
+    title: str
+    period_start: datetime | None
+    period_end: datetime | None
+    status: str
+    material_count: int
+    created_by: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class CustomerMaterialV2Create(BaseModel):
+    """V2 creation: uses new fields. Old 'project' is auto-filled from customer.area."""
+    customer_id: int
+    project_v2_id: int | None = None
+    review_batch_id: int | None = None
+    title: str = Field(..., min_length=1, max_length=255)
+    material_type: MaterialTypeValue = "period_summary"
+    period_start: datetime | None = None
+    period_end: datetime | None = None
+    raw_facts_markdown: str | None = None
+    summary_markdown: str | None = None
+    insights_markdown: str | None = None
+    status: CustomerMaterialStatusValue = "pending"
+    generation_meta: dict[str, Any] | None = None
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def normalize_title(cls, v: str | None) -> str:
+        return normalize_required_text(v, field_name="title")
+
+    @field_validator("period_start", "period_end", mode="before")
+    @classmethod
+    def normalize_dt(cls, v: datetime | str | None) -> datetime | None:
+        return normalize_datetime_input(v)
+
+
+class CustomerMaterialV2Update(BaseModel):
+    customer_id: int | None = None
+    project_v2_id: int | None = None
+    review_batch_id: int | None = None
+    title: str | None = Field(default=None, min_length=1, max_length=255)
+    material_type: MaterialTypeValue | None = None
+    period_start: datetime | None = None
+    period_end: datetime | None = None
+    raw_facts_markdown: str | None = None
+    summary_markdown: str | None = None
+    insights_markdown: str | None = None
+    status: CustomerMaterialStatusValue | None = None
+    generation_meta: dict[str, Any] | None = None
+    clear_project_v2: bool = False
+    clear_batch: bool = False
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def normalize_title(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        return normalize_required_text(v, field_name="title")
+
+    @field_validator("period_start", "period_end", mode="before")
+    @classmethod
+    def normalize_dt(cls, v: datetime | str | None) -> datetime | None:
+        return normalize_datetime_input(v)
+
+
+class CustomerMaterialV2Read(BaseModel):
+    id: int
+    customer_id: int | None
+    project_v2_id: int | None
+    review_batch_id: int | None
+    title: str
+    material_type: str
+    period_start: datetime | None
+    period_end: datetime | None
+    raw_facts_markdown: str | None
+    summary_markdown: str | None
+    insights_markdown: str | None
+    status: str
+    generation_meta: dict[str, Any] | None
+    # old compat
+    project: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class TaskUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = None
+    due_at: datetime | None = None
+    project: str | None = Field(default=None, max_length=128)
+    area: str | None = Field(default=None, max_length=128)
+    customer_id: int | None = None
+    project_id: int | None = None
+    tags: list[str] | None = None
+    source: str | None = None
+    status: str | None = None
+    recurrence: TaskRecurrenceWrite | None = None
+    clear_recurrence: bool = False
+    clear_customer: bool = False
+    clear_project_v2: bool = False
+
+    @field_validator("project", mode="before")
+    @classmethod
+    def normalize_project(cls, value: str | None) -> str | None:
+        return normalize_project_name(value)
+
+    @field_validator("due_at", mode="before")
+    @classmethod
+    def normalize_due_at(cls, value: datetime | str | None) -> datetime | None:
+        return normalize_datetime_input(value)
+
+    @field_validator("area", mode="before")
+    @classmethod
+    def normalize_area(cls, value: str | None) -> str | None:
+        return normalize_project_name(value)
