@@ -26,9 +26,6 @@ from schemas import (
     CustomerMaterialFactRead,
     CustomerMaterialRead,
     CustomerMaterialUpdate,
-    CustomerMaterialV2Create,
-    CustomerMaterialV2Read,
-    CustomerMaterialV2Update,
     CustomerRead,
     CustomerUpdate,
     DashboardPayload,
@@ -142,13 +139,46 @@ def ensure_schema_compatibility() -> None:
             "period_start": "TEXT",
             "period_end": "TEXT",
             "raw_facts_markdown": "TEXT",
-            "summary_markdown": "TEXT",
-            "insights_markdown": "TEXT",
             "generation_meta_json": "TEXT",
         }
         for col_name, col_def in v2_cm_cols.items():
             if col_name not in cm_columns:
                 cur.execute(f"ALTER TABLE customer_materials ADD COLUMN {col_name} {col_def}")
+
+        # --- customer_materials: drop deprecated columns (2026-05-04 Phase 2) ---
+        # Step 1: back-fill raw_facts_markdown from legacy fields if empty, so no content is lost
+        #   when the legacy columns are dropped below. Priority order matches the data ownership
+        #   progression: candidate > raw_source > summary > insights.
+        try:
+            cur.execute(
+                """
+                UPDATE customer_materials
+                SET raw_facts_markdown = COALESCE(
+                    NULLIF(raw_facts_markdown, ''),
+                    NULLIF(candidate_markdown, ''),
+                    NULLIF(raw_source_markdown, ''),
+                    NULLIF(summary_markdown, ''),
+                    NULLIF(insights_markdown, '')
+                )
+                WHERE (raw_facts_markdown IS NULL OR raw_facts_markdown = '')
+                """
+            )
+        except sqlite3.OperationalError:
+            # At least one legacy column already gone; the COALESCE is best-effort.
+            pass
+        # Step 2: drop deprecated columns one by one (requires SQLite >= 3.35).
+        for deprecated_col in (
+            "raw_source_markdown",
+            "candidate_markdown",
+            "summary_markdown",
+            "insights_markdown",
+            "review_note",
+        ):
+            try:
+                cur.execute(f"ALTER TABLE customer_materials DROP COLUMN {deprecated_col}")
+            except sqlite3.OperationalError:
+                # Column no longer present (already dropped in a previous run).
+                pass
 
         conn.commit()
     finally:
@@ -323,11 +353,8 @@ def serialize_customer_material(material: CustomerMaterial) -> CustomerMaterialR
         source_type=material.source_type,
         source=material.source,
         source_refs=parse_json_object(material.source_refs_json),
-        raw_source_markdown=material.raw_source_markdown,
-        candidate_markdown=material.candidate_markdown,
         value_types=parse_json_list(material.value_types_json),
         status=material.status,
-        review_note=material.review_note,
         task_id=material.task_id,
         created_at=material.created_at,
         updated_at=material.updated_at,
@@ -340,8 +367,6 @@ def serialize_customer_material(material: CustomerMaterial) -> CustomerMaterialR
         period_start=getattr(material, 'period_start', None),
         period_end=getattr(material, 'period_end', None),
         raw_facts_markdown=getattr(material, 'raw_facts_markdown', None),
-        summary_markdown=getattr(material, 'summary_markdown', None),
-        insights_markdown=getattr(material, 'insights_markdown', None),
         generation_meta=parse_json_object(getattr(material, 'generation_meta_json', None)),
     )
 
@@ -865,8 +890,7 @@ def list_customer_materials(
             or_(
                 CustomerMaterial.title.like(pattern),
                 CustomerMaterial.project.like(pattern),
-                CustomerMaterial.raw_source_markdown.like(pattern),
-                CustomerMaterial.candidate_markdown.like(pattern),
+                CustomerMaterial.raw_facts_markdown.like(pattern),
             )
         )
     stmt = stmt.order_by(CustomerMaterial.updated_at.desc(), CustomerMaterial.id.desc()).limit(limit)
@@ -894,11 +918,8 @@ def create_customer_material(payload: CustomerMaterialCreate, db: Session = Depe
         source_type=payload.source_type,
         source=payload.source,
         source_refs_json=json.dumps(payload.source_refs, ensure_ascii=False),
-        raw_source_markdown=payload.raw_source_markdown,
-        candidate_markdown=payload.candidate_markdown,
         value_types_json=json.dumps(payload.value_types, ensure_ascii=False),
         status=payload.status,
-        review_note=payload.review_note,
         task_id=payload.task_id,
         # V2 fields
         customer_id=payload.customer_id,
@@ -908,8 +929,6 @@ def create_customer_material(payload: CustomerMaterialCreate, db: Session = Depe
         period_start=payload.period_start,
         period_end=payload.period_end,
         raw_facts_markdown=payload.raw_facts_markdown,
-        summary_markdown=payload.summary_markdown,
-        insights_markdown=payload.insights_markdown,
         generation_meta_json=json.dumps(payload.generation_meta, ensure_ascii=False) if payload.generation_meta else None,
     )
     db.add(material)
@@ -1343,27 +1362,6 @@ def serialize_review_batch(batch: ReviewBatch) -> ReviewBatchRead:
     )
 
 
-def serialize_material_v2(material: CustomerMaterial) -> CustomerMaterialV2Read:
-    return CustomerMaterialV2Read(
-        id=material.id,
-        customer_id=getattr(material, 'customer_id', None),
-        project_v2_id=getattr(material, 'project_v2_id', None),
-        review_batch_id=getattr(material, 'review_batch_id', None),
-        title=material.title,
-        material_type=getattr(material, 'material_type', 'period_summary'),
-        period_start=getattr(material, 'period_start', None),
-        period_end=getattr(material, 'period_end', None),
-        raw_facts_markdown=getattr(material, 'raw_facts_markdown', None),
-        summary_markdown=getattr(material, 'summary_markdown', None),
-        insights_markdown=getattr(material, 'insights_markdown', None),
-        status=material.status,
-        generation_meta=parse_json_object(getattr(material, 'generation_meta_json', None)),
-        project=material.project,
-        created_at=material.created_at,
-        updated_at=material.updated_at,
-    )
-
-
 def serialize_material_fact(mf: CustomerMaterialFact) -> CustomerMaterialFactRead:
     return CustomerMaterialFactRead(
         id=mf.id,
@@ -1695,105 +1693,6 @@ def list_batch_materials(batch_id: int, db: Session = Depends(get_db)) -> list[C
         CustomerMaterial.review_batch_id == batch_id  # type: ignore[attr-defined]
     ).order_by(CustomerMaterial.id.asc())
     return [serialize_customer_material(m) for m in db.scalars(stmt).all()]
-
-
-# --- Customer Material V2 Create / Read / Update / Mark Uploaded ---
-
-@app.post("/api/customer-materials-v2", response_model=CustomerMaterialV2Read, status_code=201)
-def create_customer_material_v2(payload: CustomerMaterialV2Create, db: Session = Depends(get_db)) -> CustomerMaterialV2Read:
-    customer = db.get(Customer, payload.customer_id)
-    if not customer:
-        raise HTTPException(status_code=404, detail="Customer not found")
-    project_str = customer.area or customer.name
-    material = CustomerMaterial(
-        project=project_str,
-        title=payload.title,
-        customer_id=payload.customer_id,
-        project_v2_id=payload.project_v2_id,
-        review_batch_id=payload.review_batch_id,
-        material_type=payload.material_type,
-        period_start=payload.period_start,
-        period_end=payload.period_end,
-        raw_facts_markdown=payload.raw_facts_markdown,
-        summary_markdown=payload.summary_markdown,
-        insights_markdown=payload.insights_markdown,
-        status=payload.status,
-        generation_meta_json=json.dumps(payload.generation_meta, ensure_ascii=False) if payload.generation_meta else None,
-        # old compat defaults
-        source_type="text",
-        source="chat",
-        source_refs_json="{}",
-        value_types_json="[]",
-    )
-    db.add(material)
-    db.commit()
-    db.refresh(material)
-    return serialize_material_v2(material)
-
-
-@app.get("/api/customer-materials-v2/{material_id}", response_model=CustomerMaterialV2Read)
-def get_customer_material_v2(material_id: int, db: Session = Depends(get_db)) -> CustomerMaterialV2Read:
-    material = get_customer_material_or_404(db, material_id)
-    return serialize_material_v2(material)
-
-
-@app.patch("/api/customer-materials-v2/{material_id}", response_model=CustomerMaterialV2Read)
-def update_customer_material_v2(material_id: int, payload: CustomerMaterialV2Update, db: Session = Depends(get_db)) -> CustomerMaterialV2Read:
-    material = get_customer_material_or_404(db, material_id)
-    updates = payload.model_dump(exclude_unset=True)
-    clear_project_v2 = bool(updates.pop("clear_project_v2", False))
-    clear_batch = bool(updates.pop("clear_batch", False))
-    if "generation_meta" in updates:
-        meta = updates.pop("generation_meta")
-        material.generation_meta_json = json.dumps(meta, ensure_ascii=False) if meta else None  # type: ignore[attr-defined]
-    for field, value in updates.items():
-        setattr(material, field, value)
-    if clear_project_v2:
-        material.project_v2_id = None  # type: ignore[attr-defined]
-    if clear_batch:
-        material.review_batch_id = None  # type: ignore[attr-defined]
-    db.add(material)
-    db.commit()
-    db.refresh(material)
-    return serialize_material_v2(material)
-
-
-@app.post("/api/customer-materials-v2/{material_id}/mark-uploaded", response_model=CustomerMaterialV2Read)
-def mark_material_uploaded(material_id: int, db: Session = Depends(get_db)) -> CustomerMaterialV2Read:
-    material = get_customer_material_or_404(db, material_id)
-    material.status = CustomerMaterialStatus.UPLOADED.value
-    db.add(material)
-    db.commit()
-    db.refresh(material)
-    return serialize_material_v2(material)
-
-
-# --- Customer Material Facts ---
-
-@app.post("/api/customer-materials-v2/{material_id}/facts", response_model=CustomerMaterialFactRead, status_code=201)
-def add_material_fact(material_id: int, payload: CustomerMaterialFactCreate, db: Session = Depends(get_db)) -> CustomerMaterialFactRead:
-    material = get_customer_material_or_404(db, material_id)
-    fact = db.get(Fact, payload.fact_id)
-    if not fact:
-        raise HTTPException(status_code=404, detail="Fact not found")
-    mf = CustomerMaterialFact(
-        material_id=material.id,
-        fact_id=payload.fact_id,
-        sort_order=payload.sort_order,
-    )
-    db.add(mf)
-    db.commit()
-    db.refresh(mf)
-    return serialize_material_fact(mf)
-
-
-@app.get("/api/customer-materials-v2/{material_id}/facts", response_model=list[CustomerMaterialFactRead])
-def list_material_facts(material_id: int, db: Session = Depends(get_db)) -> list[CustomerMaterialFactRead]:
-    get_customer_material_or_404(db, material_id)
-    stmt = select(CustomerMaterialFact).where(
-        CustomerMaterialFact.material_id == material_id
-    ).order_by(CustomerMaterialFact.sort_order.asc())
-    return [serialize_material_fact(mf) for mf in db.scalars(stmt).all()]
 
 
 if __name__ == "__main__":

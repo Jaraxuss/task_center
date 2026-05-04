@@ -248,15 +248,12 @@ class CustomerMaterial(Base):
     __tablename__ = "customer_materials"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    # Old fields (kept for backward compatibility)
+    # Legacy metadata fields (kept for backward compatibility)
     project: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     source_type: Mapped[str] = mapped_column(String(32), nullable=False, default="text", index=True)
     source: Mapped[str] = mapped_column(String(32), nullable=False, default="chat")
     source_refs_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
-    raw_source_markdown: Mapped[str | None] = mapped_column(Text, nullable=True)
-    candidate_markdown: Mapped[str | None] = mapped_column(Text, nullable=True)
     value_types_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
-    review_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     task_id: Mapped[int | None] = mapped_column(ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True, index=True)
     archived_at: Mapped[datetime | None] = mapped_column(UTCDateTimeText(), nullable=True, index=True)
     # V2 fields
@@ -269,8 +266,6 @@ class CustomerMaterial(Base):
     period_start: Mapped[datetime | None] = mapped_column(UTCDateTimeText(), nullable=True)
     period_end: Mapped[datetime | None] = mapped_column(UTCDateTimeText(), nullable=True)
     raw_facts_markdown: Mapped[str | None] = mapped_column(Text, nullable=True)
-    summary_markdown: Mapped[str | None] = mapped_column(Text, nullable=True)
-    insights_markdown: Mapped[str | None] = mapped_column(Text, nullable=True)
     generation_meta_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default=CustomerMaterialStatus.PENDING.value, index=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTimeText(), nullable=False, default=now_utc)

@@ -12,8 +12,14 @@
 > - `tasks` 新增 `source_type` 标签字段，用于标记任务来源（`forwarded_message` / `screenshot` / `meeting_note` / `user_chat` / `manual_input`）。
 > - **转发消息 / 截图 / 会议纪要场景必须两步走**：先 `POST /api/tasks`（带 `source_type`），再 `POST /api/facts`（`task_id` 关联，`raw_markdown` 为原文，禁止 LLM 加工）。详见第 11 节。
 > - **后端不派生 fact**：`POST /api/tasks/{id}/complete` 不再自动生成 fact，需要 fact 的场景必须显式 `POST /api/facts`。
-> - **周期客户材料由 `scripts/customer_materials_weekly.py` 确定性脚本生成**，不再走 LLM / agentTurn；新流程材料**只写 `raw_facts_markdown`**，`summary_markdown` / `insights_markdown` 字段保留兼容但不再写入。
+> - **周期客户材料由 `scripts/customer_materials_weekly.py` 确定性脚本生成**，不再走 LLM / agentTurn；新流程材料**只写 `raw_facts_markdown`**。
 > - 上传 NotebookLM 的 markdown **不再拼三段标题**，只保留 `# {customer}｜{project 或 客户级}｜{period}` + `raw_facts_markdown`。
+>
+> **2026-05-04 Phase 2 修订（继上条）：**
+>
+> - `customer_materials` 的 5 个旧/兼容字段 —— `raw_source_markdown` / `candidate_markdown` / `summary_markdown` / `insights_markdown` / `review_note` —— **已从后端物理删除**。agent / 脚本 / 调用方**不应再传**这些字段（目前 Pydantic 默认 `extra='ignore'`，多传会被静默忽略，不会 422）。
+> - `customer_materials` 的唯一正文字段 = `raw_facts_markdown`。
+> - `/api/customer-materials-v2` 端点族**已从代码中删除**，调用会返回 404。所有客户材料操作统一走 `/api/customer-materials`。
 
 ---
 
@@ -240,19 +246,16 @@ with urllib.request.urlopen(req, timeout=10) as resp:
 当南哥在待办 / 客户跟进语境中提到**跟进过程、跟进结果、客户反馈、聊天截图、会议结论、交付卡点**时，除了更新任务本身，还应把可沉淀内容写入客户材料。
 
 当前规则：
-- 客户材料的**唯一公开入口**是 `/api/customer-materials`。
-- `/api/customer-materials-v2` 已在契约层面废弃；文档、agent、cron、skill 不应再引用该路径，短期兼容别名也必须在文档之外维护。
-- 新模型字段（`customer_id`、`project_v2_id`、`review_batch_id`、`material_type`、`period_start`、`period_end`、`raw_facts_markdown`、`summary_markdown`、`insights_markdown`、`generation_meta`）为主字段。
-- 旧字段（`project`、`source_type`、`candidate_markdown`、`review_note`、`task_id`、`archived_at`）保留兼容，但不再作为新流程主字段。
-- 文档中所有示例都使用 `/api/customer-materials`；旧 `/api/customer-materials-v2` 仅保留在实现说明与迁移备注中，不作为调用示例。
-
-> **2026-05-04 修订**：周期客户材料由 `scripts/customer_materials_weekly.py` 确定性脚本生成，新流程材料**只写 `raw_facts_markdown`**；`summary_markdown` / `insights_markdown` 字段保留兼容（旧数据仍可读），但不应再由 agent / 脚本主动写入，NotebookLM 在上传后自带摘要 / 洞察能力。下面示例中保留这两字段是为了展示完整 schema，新流程调用时建议传 `null` 或省略。
+- 客户材料的**唯一公开入口**是 `/api/customer-materials`。`/api/customer-materials-v2` 已在 2026-05-04 Phase 2 从代码中删除，调用会 404。
+- 新模型主字段：`customer_id`、`project_v2_id`、`review_batch_id`、`material_type`、`period_start`、`period_end`、**`raw_facts_markdown`（唯一正文字段）**、`generation_meta`。
+- 兼容字段：`project`、`title`、`material_date`、`source_type`、`source`、`source_refs`、`value_types`、`task_id`、`archived_at`、`status`。
+- **已物理删除**的字段（传了也不会报错，但不会落地）：`raw_source_markdown`、`candidate_markdown`、`summary_markdown`、`insights_markdown`、`review_note`。
 
 > 迁移提示：旧 `project` 仍保留兼容，但新流程优先通过 `customer_id` / `project_v2_id` / `review_batch_id` 定位客户材料。
 
 ### 9.1 创建客户材料
 
-#### 9.1.1 新模型（推荐）
+> 现实中移动端 / agent 基本不会手工 POST 新 material —— 周期材料由 `scripts/customer_materials_weekly.py` 在每周日 20:00 统一创建。下面示例仅作 schema 参考。
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/customer-materials \
@@ -266,28 +269,7 @@ curl -X POST http://127.0.0.1:8000/api/customer-materials \
     "period_start": "2026-05-01T00:00:00",
     "period_end": "2026-05-07T23:59:59",
     "raw_facts_markdown": "完整事实记录（不删减）...",
-    "summary_markdown": "简要纪要...",
-    "insights_markdown": "洞察 / 风险 / 下一步建议（AI 推导层）...",
     "status": "pending"
-  }'
-```
-
-#### 9.1.2 旧模型（兼容，非推荐）
-
-```bash
-curl -X POST http://127.0.0.1:8000/api/customer-materials \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "project": "客户_苏中药业",
-    "title": "淘宝黄葵胶囊价格监控风控问题",
-    "material_date": "2026-04-27T20:30:00",
-    "source_type": "task_completion",
-    "source": "chat",
-    "source_refs": {"message_id": "om_xxx", "task_id": 105},
-    "raw_source_markdown": "完整原始材料，尽量保留南哥原话、客户对话、截图 OCR/转写和不确定性标注。",
-    "candidate_markdown": "轻度清洗后的 NotebookLM 候选入库 Markdown。",
-    "value_types": ["客户需求", "系统限制", "风险/阻塞", "解决方案"],
-    "task_id": 105
   }'
 ```
 
@@ -318,19 +300,13 @@ curl -X PATCH http://127.0.0.1:8000/api/customer-materials/1 \
   -H 'Content-Type: application/json' \
   -d '{"status": "approved"}'
 
-# 更新新模型主字段
+# 修改正文（南哥审核时改错别字 / 补遗漏）
 curl -X PATCH http://127.0.0.1:8000/api/customer-materials/1 \
   -H 'Content-Type: application/json' \
   -d '{
     "title": "佰世赛｜客户级｜2026-05-01 ~ 2026-05-07 客户事实与总结",
-    "summary_markdown": "更新后的纪要",
-    "insights_markdown": "更新后的洞察"
+    "raw_facts_markdown": "南哥审核后微调过的事实原文..."
   }'
-
-# 兼容旧字段修改（非新流程推荐）
-curl -X PATCH http://127.0.0.1:8000/api/customer-materials/1 \
-  -H 'Content-Type: application/json' \
-  -d '{"status": "approved", "review_note": "已确认可入库"}'
 
 # 软归档，默认列表不再返回；如需看归档材料，加 include_archived=true
 curl -X DELETE http://127.0.0.1:8000/api/customer-materials/1
@@ -344,14 +320,15 @@ curl -X DELETE http://127.0.0.1:8000/api/customer-materials/1
 - `review_batch_id`：可选，关联审核批次；用于周期材料归集。
 - `material_type`：可选，默认 `period_summary`；建议值：`period_summary` / `fact_bundle` / `meeting_note` / `project_digest`。
 - `period_start` / `period_end`：可选，周期区间。
-- `raw_facts_markdown`：**新流程唯一写入字段**，完整事实层；不要删减客户原话、截图转写、不确定性标注。
-- `summary_markdown`：**保留兼容，新流程不写入**（NotebookLM 自带摘要能力）。旧数据仍可读，PATCH 时建议传 `null` 清空或不动。
-- `insights_markdown`：**保留兼容，新流程不写入**（NotebookLM 自带洞察能力）。旧数据仍可读。
+- `raw_facts_markdown`：**唯一正文字段**，完整事实层；不要删减客户原话、截图转写、不确定性标注。
 - `generation_meta`：可选，JSON 对象，记录生成参数与过程元信息（脚本会写 `fact_count` / `generated_by` / `generated_at`）。
 
-#### 旧字段（兼容层）
+#### 兼容字段
 - `project`：兼容，仍可查询，但不再作为新流程主定位字段。
-- `material_date` / `source_type` / `source_refs` / `candidate_markdown` / `value_types` / `review_note` / `task_id` / `archived_at`：保留兼容，但不应作为新流程主字段。
+- `material_date` / `source_type` / `source` / `source_refs` / `value_types` / `task_id` / `archived_at`：保留兼容，但不应作为新流程主字段。
+
+#### 已物理删除的字段（2026-05-04 Phase 2）
+- `raw_source_markdown` / `candidate_markdown` / `summary_markdown` / `insights_markdown` / `review_note`：列已从 DB drop，schema 不再暴露；POST / PATCH 传入会被 Pydantic 静默忽略，不产生任何副作用。
 
 #### 常用状态
 - `pending`：待审核
@@ -532,23 +509,22 @@ DELETE /api/facts/{id}
 - `title`（必填）
 - `material_type`（可选，默认 `period_summary`）
 - `period_start` / `period_end`（可选）
-- `raw_facts_markdown`（**新流程唯一写入字段**）
-- `summary_markdown`（**保留兼容，新流程不写入**）
-- `insights_markdown`（**保留兼容，新流程不写入**）
+- `raw_facts_markdown`（**唯一正文字段**）
 - `generation_meta`（可选 JSON 对象）
 - `status`（可选）
 
-**旧字段（兼容层，不作为新流程主字段）**
+**兼容字段（不作为新流程主字段）**
 - `project`
 - `material_date`
 - `source_type`
+- `source`
 - `source_refs`
-- `raw_source_markdown`
-- `candidate_markdown`
 - `value_types`
-- `review_note`
 - `task_id`
 - `archived_at`
+
+**已物理删除字段（2026-05-04 Phase 2，POST/PATCH 中传入会被静默忽略）**
+- `raw_source_markdown` / `candidate_markdown` / `summary_markdown` / `insights_markdown` / `review_note`
 
 #### 最小调用示例
 
@@ -556,7 +532,7 @@ DELETE /api/facts/{id}
 # 列表（推荐新字段筛选）
 GET /api/customer-materials?customer_id=1&review_batch_id=10&status=pending&material_type=period_summary
 
-# 创建材料（新流程：只写 raw_facts_markdown，summary/insights 留空）
+# 创建材料（通常由 scripts/customer_materials_weekly.py 自动写入，手工调用仅用于调试）
 POST /api/customer-materials
 curl -X POST http://127.0.0.1:8000/api/customer-materials \
   -H 'Content-Type: application/json' \
@@ -569,8 +545,6 @@ curl -X POST http://127.0.0.1:8000/api/customer-materials \
     "period_start": "2026-05-01T00:00:00",
     "period_end": "2026-05-07T23:59:59",
     "raw_facts_markdown": "完整事实记录（不删减）...",
-    "summary_markdown": null,
-    "insights_markdown": null,
     "status": "pending"
   }'
 
@@ -700,8 +674,7 @@ curl 'http://127.0.0.1:8000/api/tasks?source_type=forwarded_message&from=2026-05
 
 规则：
 
-- **不再拼三段标题**（"完整事实记录 / 简要纪要 / 洞察建议"），即使数据库里旧 material 的 `summary_markdown` / `insights_markdown` 非空，也不要拼进上传内容。
-- `summary_markdown` / `insights_markdown` 由 NotebookLM 自带摘要 / 洞察能力在上传后生成，不在 cron 时点重复劳动。
+- **不再拼三段标题**（"完整事实记录 / 简要纪要 / 洞察建议"）。摘要 / 洞察由 NotebookLM 自带能力在上传后生成，不在 cron 时点重复劳动。
 - 上传时使用 nblm 的 `upload-text` 命令，靠客户名匹配已有 Notebook。
 - 上传成功后必须 `POST /api/customer-materials/{id}/mark-uploaded`，把 status 推到 `uploaded`。
 

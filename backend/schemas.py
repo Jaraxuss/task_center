@@ -148,11 +148,8 @@ class CustomerMaterialBase(BaseModel):
     source_type: str = Field(default="text", max_length=32)
     source: str = Field(default="chat", max_length=32)
     source_refs: dict[str, Any] = Field(default_factory=dict)
-    raw_source_markdown: str | None = None
-    candidate_markdown: str | None = None
     value_types: list[str] = Field(default_factory=list)
     status: CustomerMaterialStatusValue = "pending"
-    review_note: str | None = None
     task_id: int | None = None
     # V2 fields (consolidated into main schema per API consolidation plan)
     customer_id: int | None = None
@@ -162,8 +159,6 @@ class CustomerMaterialBase(BaseModel):
     period_start: datetime | None = None
     period_end: datetime | None = None
     raw_facts_markdown: str | None = None
-    summary_markdown: str | None = None
-    insights_markdown: str | None = None
     generation_meta: dict[str, Any] | None = None
 
     @field_validator("project", mode="before")
@@ -224,11 +219,8 @@ class CustomerMaterialUpdate(BaseModel):
     source_type: str | None = Field(default=None, max_length=32)
     source: str | None = Field(default=None, max_length=32)
     source_refs: dict[str, Any] | None = None
-    raw_source_markdown: str | None = None
-    candidate_markdown: str | None = None
     value_types: list[str] | None = None
     status: CustomerMaterialStatusValue | None = None
-    review_note: str | None = None
     task_id: int | None = None
     clear_task: bool = False
     # V2 fields
@@ -239,8 +231,6 @@ class CustomerMaterialUpdate(BaseModel):
     period_start: datetime | None = None
     period_end: datetime | None = None
     raw_facts_markdown: str | None = None
-    summary_markdown: str | None = None
-    insights_markdown: str | None = None
     generation_meta: dict[str, Any] | None = None
     clear_project_v2: bool = False
     clear_batch: bool = False
@@ -290,11 +280,8 @@ class CustomerMaterialRead(BaseModel):
     source_type: str
     source: str
     source_refs: dict[str, Any]
-    raw_source_markdown: str | None
-    candidate_markdown: str | None
     value_types: list[str]
     status: str
-    review_note: str | None
     task_id: int | None
     created_at: datetime
     updated_at: datetime
@@ -307,8 +294,6 @@ class CustomerMaterialRead(BaseModel):
     period_start: datetime | None = None
     period_end: datetime | None = None
     raw_facts_markdown: str | None = None
-    summary_markdown: str | None = None
-    insights_markdown: str | None = None
     generation_meta: dict[str, Any] | None = None
 
 
@@ -878,81 +863,6 @@ class ReviewBatchRead(BaseModel):
     status: str
     material_count: int
     created_by: str
-    created_at: datetime
-    updated_at: datetime
-
-
-class CustomerMaterialV2Create(BaseModel):
-    """V2 creation: uses new fields. Old 'project' is auto-filled from customer.area."""
-    customer_id: int
-    project_v2_id: int | None = None
-    review_batch_id: int | None = None
-    title: str = Field(..., min_length=1, max_length=255)
-    material_type: MaterialTypeValue = "period_summary"
-    period_start: datetime | None = None
-    period_end: datetime | None = None
-    raw_facts_markdown: str | None = None
-    summary_markdown: str | None = None
-    insights_markdown: str | None = None
-    status: CustomerMaterialStatusValue = "pending"
-    generation_meta: dict[str, Any] | None = None
-
-    @field_validator("title", mode="before")
-    @classmethod
-    def normalize_title(cls, v: str | None) -> str:
-        return normalize_required_text(v, field_name="title")
-
-    @field_validator("period_start", "period_end", mode="before")
-    @classmethod
-    def normalize_dt(cls, v: datetime | str | None) -> datetime | None:
-        return normalize_datetime_input(v)
-
-
-class CustomerMaterialV2Update(BaseModel):
-    customer_id: int | None = None
-    project_v2_id: int | None = None
-    review_batch_id: int | None = None
-    title: str | None = Field(default=None, min_length=1, max_length=255)
-    material_type: MaterialTypeValue | None = None
-    period_start: datetime | None = None
-    period_end: datetime | None = None
-    raw_facts_markdown: str | None = None
-    summary_markdown: str | None = None
-    insights_markdown: str | None = None
-    status: CustomerMaterialStatusValue | None = None
-    generation_meta: dict[str, Any] | None = None
-    clear_project_v2: bool = False
-    clear_batch: bool = False
-
-    @field_validator("title", mode="before")
-    @classmethod
-    def normalize_title(cls, v: str | None) -> str | None:
-        if v is None:
-            return None
-        return normalize_required_text(v, field_name="title")
-
-    @field_validator("period_start", "period_end", mode="before")
-    @classmethod
-    def normalize_dt(cls, v: datetime | str | None) -> datetime | None:
-        return normalize_datetime_input(v)
-
-
-class CustomerMaterialV2Read(BaseModel):
-    id: int
-    customer_id: int | None
-    project_v2_id: int | None
-    review_batch_id: int | None
-    title: str
-    material_type: str
-    period_start: datetime | None
-    period_end: datetime | None
-    raw_facts_markdown: str | None
-    summary_markdown: str | None
-    insights_markdown: str | None
-    status: str
-    generation_meta: dict[str, Any] | None
-    # old compat
-    project: str
     created_at: datetime
     updated_at: datetime
 
