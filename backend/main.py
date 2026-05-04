@@ -122,6 +122,8 @@ def ensure_schema_compatibility() -> None:
             cur.execute("ALTER TABLE tasks ADD COLUMN customer_id INTEGER REFERENCES customers(id) ON DELETE SET NULL")
         if "project_id" not in task_columns:
             cur.execute("ALTER TABLE tasks ADD COLUMN project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL")
+        if "source_type" not in task_columns:
+            cur.execute("ALTER TABLE tasks ADD COLUMN source_type VARCHAR(32)")
 
         # --- board_preferences ---
         cur.execute("PRAGMA table_info(board_preference)")
@@ -271,6 +273,7 @@ def serialize_task(task: Task) -> TaskRead:
         project_id=getattr(task, 'project_id', None),
         tags=json.loads(task.tags_json or "[]"),
         source=task.source,
+        source_type=getattr(task, 'source_type', None),
         created_at=task.created_at,
         updated_at=task.updated_at,
         completed_at=task.completed_at,
@@ -420,13 +423,27 @@ def get_task_or_404(db: Session, task_id: int) -> Task:
 
 
 
-def query_tasks(db: Session, *, status: str | None = None, query: str | None = None):
+def query_tasks(
+    db: Session,
+    *,
+    status: str | None = None,
+    query: str | None = None,
+    source_type: str | None = None,
+    created_from: datetime | None = None,
+    created_to: datetime | None = None,
+):
     stmt = select(Task).options(*task_load_options())
     if status:
         stmt = stmt.where(Task.status == status)
     if query:
         like = f"%{query}%"
         stmt = stmt.where(or_(Task.title.ilike(like), Task.description.ilike(like), Task.project.ilike(like)))
+    if source_type:
+        stmt = stmt.where(Task.source_type == source_type)
+    if created_from is not None:
+        stmt = stmt.where(Task.created_at >= created_from)
+    if created_to is not None:
+        stmt = stmt.where(Task.created_at < created_to)
     return stmt.order_by(Task.due_at.is_(None), Task.due_at.asc(), Task.created_at.desc())
 
 
@@ -702,9 +719,19 @@ def list_tasks(
     status: str | None = Query(default=None),
     date_filter: str | None = Query(default=None, alias="date"),
     q: str | None = Query(default=None),
+    source_type: str | None = Query(default=None),
+    created_from: datetime | None = Query(default=None, alias="from"),
+    created_to: datetime | None = Query(default=None, alias="to"),
     db: Session = Depends(get_db),
 ) -> list[TaskRead]:
-    stmt = query_tasks(db, status=status, query=q)
+    stmt = query_tasks(
+        db,
+        status=status,
+        query=q,
+        source_type=source_type,
+        created_from=created_from,
+        created_to=created_to,
+    )
     if date_filter == "today":
         start, end = local_day_bounds(today_local())
         stmt = stmt.where(Task.due_at.between(start, end - timedelta(microseconds=1)))
@@ -1011,6 +1038,7 @@ def create_task(payload: TaskCreate, db: Session = Depends(get_db)) -> TaskDetai
         project_id=getattr(payload, 'project_id', None),
         tags_json=json.dumps(payload.tags, ensure_ascii=False),
         source=payload.source,
+        source_type=getattr(payload, 'source_type', None),
     )
     db.add(task)
     db.flush()

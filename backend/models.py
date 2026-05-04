@@ -34,6 +34,23 @@ class TaskStatus(str, Enum):
     CANCELED = "canceled"
 
 
+class TaskSourceType(str, Enum):
+    """任务来源标签。
+
+    仅作分类标签使用，不存原文内容。原文内容仅存在 ``Fact.raw_markdown`` 一处。
+
+    转发/截图/会议纪要场景下，OpenClaw 主代理必须在 ``POST /api/tasks`` 时带上对应
+    枚举值，并配套 ``POST /api/facts`` 写入原始内容（参考 ``task-center-customer-knowledge``
+    SKILL）。本枚举仅作推荐值，未来可在不迁移数据库的前提下扩展。
+    """
+
+    USER_CHAT = "user_chat"
+    FORWARDED_MESSAGE = "forwarded_message"
+    SCREENSHOT = "screenshot"
+    MEETING_NOTE = "meeting_note"
+    MANUAL_INPUT = "manual_input"
+
+
 class CustomerStatus(str, Enum):
     ACTIVE = "active"
     PAUSED = "paused"
@@ -211,6 +228,7 @@ class Task(Base):
     project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id", ondelete="SET NULL"), nullable=True, index=True)
     tags_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     source: Mapped[str] = mapped_column(String(32), nullable=False, default="web")
+    source_type: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTimeText(), nullable=False, default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTimeText(), nullable=False, default=now_utc, onupdate=now_utc)
     completed_at: Mapped[datetime | None] = mapped_column(UTCDateTimeText(), nullable=True)

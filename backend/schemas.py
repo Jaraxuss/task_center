@@ -322,6 +322,7 @@ class TaskBase(BaseModel):
     project_id: int | None = None
     tags: list[str] = Field(default_factory=list)
     source: str = "web"
+    source_type: str | None = Field(default=None, max_length=32)
 
     @field_validator("project", mode="before")
     @classmethod
@@ -403,6 +404,7 @@ class TaskRead(BaseModel):
     project_id: int | None
     tags: list[str]
     source: str
+    source_type: str | None = None
     created_at: datetime
     updated_at: datetime
     completed_at: datetime | None
@@ -965,6 +967,7 @@ class TaskUpdate(BaseModel):
     project_id: int | None = None
     tags: list[str] | None = None
     source: str | None = None
+    source_type: str | None = Field(default=None, max_length=32)
     status: str | None = None
     recurrence: TaskRecurrenceWrite | None = None
     clear_recurrence: bool = False
