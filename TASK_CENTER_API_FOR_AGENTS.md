@@ -7,6 +7,14 @@
 > 1. 当用户提出提醒、待办、改时间、完成、取消等请求时，先把事实落进 task_center，再默认同步 OpenClaw cron。
 > 2. 当用户提到客户跟进信息时，按 `task-center-customer-knowledge` Skill 写入客户事实、周期生成材料、审核后上传 NotebookLM。
 
+> **2026-05-04 修订要点（务必先读）：**
+>
+> - `tasks` 新增 `source_type` 标签字段，用于标记任务来源（`forwarded_message` / `screenshot` / `meeting_note` / `user_chat` / `manual_input`）。
+> - **转发消息 / 截图 / 会议纪要场景必须两步走**：先 `POST /api/tasks`（带 `source_type`），再 `POST /api/facts`（`task_id` 关联，`raw_markdown` 为原文，禁止 LLM 加工）。详见第 11 节。
+> - **后端不派生 fact**：`POST /api/tasks/{id}/complete` 不再自动生成 fact，需要 fact 的场景必须显式 `POST /api/facts`。
+> - **周期客户材料由 `scripts/customer_materials_weekly.py` 确定性脚本生成**，不再走 LLM / agentTurn；新流程材料**只写 `raw_facts_markdown`**，`summary_markdown` / `insights_markdown` 字段保留兼容但不再写入。
+> - 上传 NotebookLM 的 markdown **不再拼三段标题**，只保留 `# {customer}｜{project 或 客户级}｜{period}` + `raw_facts_markdown`。
+
 ---
 
 ## 1. 服务位置
@@ -82,6 +90,7 @@ curl -X POST http://127.0.0.1:8000/api/tasks \
     "project": "客户_无锡妮茜雅",
     "tags": ["客户", "交付", "增购账号", "妮茜雅"],
     "source": "chat",
+    "source_type": "user_chat",
     "reminders": [
       {
         "remind_at": "2026-04-22T21:30:00",
@@ -91,6 +100,8 @@ curl -X POST http://127.0.0.1:8000/api/tasks \
     ]
   }'
 ```
+
+> `source_type` 是任务来源**标签**（不是必填）。普通待办填 `user_chat` 或省略；当来源是用户转发 / 截图 / 会议纪要时**必须**填 `forwarded_message` / `screenshot` / `meeting_note` 并配套写 fact，详见第 11 节。
 
 ### 4.3 给已有任务补提醒
 
@@ -164,6 +175,7 @@ payload = {
     'project': '客户_无锡妮茜雅',
     'tags': ['客户', '交付', '增购账号', '妮茜雅'],
     'source': 'chat',
+    'source_type': 'user_chat',
     'reminders': [
         {
             'remind_at': '2026-04-22T21:30:00',
@@ -233,6 +245,8 @@ with urllib.request.urlopen(req, timeout=10) as resp:
 - 新模型字段（`customer_id`、`project_v2_id`、`review_batch_id`、`material_type`、`period_start`、`period_end`、`raw_facts_markdown`、`summary_markdown`、`insights_markdown`、`generation_meta`）为主字段。
 - 旧字段（`project`、`source_type`、`candidate_markdown`、`review_note`、`task_id`、`archived_at`）保留兼容，但不再作为新流程主字段。
 - 文档中所有示例都使用 `/api/customer-materials`；旧 `/api/customer-materials-v2` 仅保留在实现说明与迁移备注中，不作为调用示例。
+
+> **2026-05-04 修订**：周期客户材料由 `scripts/customer_materials_weekly.py` 确定性脚本生成，新流程材料**只写 `raw_facts_markdown`**；`summary_markdown` / `insights_markdown` 字段保留兼容（旧数据仍可读），但不应再由 agent / 脚本主动写入，NotebookLM 在上传后自带摘要 / 洞察能力。下面示例中保留这两字段是为了展示完整 schema，新流程调用时建议传 `null` 或省略。
 
 > 迁移提示：旧 `project` 仍保留兼容，但新流程优先通过 `customer_id` / `project_v2_id` / `review_batch_id` 定位客户材料。
 
@@ -330,10 +344,10 @@ curl -X DELETE http://127.0.0.1:8000/api/customer-materials/1
 - `review_batch_id`：可选，关联审核批次；用于周期材料归集。
 - `material_type`：可选，默认 `period_summary`；建议值：`period_summary` / `fact_bundle` / `meeting_note` / `project_digest`。
 - `period_start` / `period_end`：可选，周期区间。
-- `raw_facts_markdown`：推荐，完整事实层；不要删减客户原话、截图转写、不确定性标注。
-- `summary_markdown`：推荐，简要纪要层。
-- `insights_markdown`：推荐，AI 推导层；上传 NotebookLM 时需显式标注为"洞察 / 风险 / 下一步建议"。
-- `generation_meta`：可选，JSON 对象，记录生成参数与过程元信息。
+- `raw_facts_markdown`：**新流程唯一写入字段**，完整事实层；不要删减客户原话、截图转写、不确定性标注。
+- `summary_markdown`：**保留兼容，新流程不写入**（NotebookLM 自带摘要能力）。旧数据仍可读，PATCH 时建议传 `null` 清空或不动。
+- `insights_markdown`：**保留兼容，新流程不写入**（NotebookLM 自带洞察能力）。旧数据仍可读。
+- `generation_meta`：可选，JSON 对象，记录生成参数与过程元信息（脚本会写 `fact_count` / `generated_by` / `generated_at`）。
 
 #### 旧字段（兼容层）
 - `project`：兼容，仍可查询，但不再作为新流程主定位字段。
@@ -454,10 +468,19 @@ curl -X PATCH http://127.0.0.1:8000/api/projects-v2/1 \
 
 ### 10.5 Facts API
 
-事实（facts）是 NotebookLM 的主要原始内容来源。写入规则：
-- 用户明确说"记录一下" → status=`confirmed`
-- 自动提取（任务完成、截图、会议纪要等） → status=`draft`
-- 系统操作痕迹、提醒本身、无客户价值流水账 → **不写 fact**
+事实（facts）是 NotebookLM 的主要原始内容来源。
+
+**2026-05-04 修订后的写入规则（硬约定，详见 SKILL.md）：**
+
+| 场景 | 任务 `source_type` | 是否写 fact | fact `status` | `raw_markdown` 要求 |
+|---|---|---|---|---|
+| 用户转发消息 / 会话记录 | `forwarded_message` | **必须**（两步走） | `confirmed` | 原文搬运，保留发言人/时间/原句，**禁止 LLM 加工** |
+| 用户发截图 | `screenshot` | **必须**（两步走） | `confirmed` | 转写为多人对话原文 + 图片元素 `[此处为xx图片]` 描述 |
+| 用户给会议纪要 | `meeting_note` | **必须**（两步走） | `confirmed` | 纪要原文 |
+| 普通"提醒我做 X" | `user_chat` 或不填 | **不写** | — | — |
+| 任务完成 (`POST /api/tasks/{id}/complete`) | 任意 | **不派生**（后端不做副作用） | — | 如完成结果有价值，让用户主动转发，再走转发场景 |
+
+**两步走 = `POST /api/tasks` → 拿到 `task.id` → `POST /api/facts` 带 `task_id`**，两步必须配对。系统操作痕迹、提醒本身、无客户价值流水账一律不写 fact。
 
 ```bash
 # 列表（支持 customer_id、project_id、task_id、status、source_type、from、to、q）
@@ -509,9 +532,9 @@ DELETE /api/facts/{id}
 - `title`（必填）
 - `material_type`（可选，默认 `period_summary`）
 - `period_start` / `period_end`（可选）
-- `raw_facts_markdown`（推荐）
-- `summary_markdown`（推荐）
-- `insights_markdown`（推荐）
+- `raw_facts_markdown`（**新流程唯一写入字段**）
+- `summary_markdown`（**保留兼容，新流程不写入**）
+- `insights_markdown`（**保留兼容，新流程不写入**）
 - `generation_meta`（可选 JSON 对象）
 - `status`（可选）
 
@@ -533,7 +556,7 @@ DELETE /api/facts/{id}
 # 列表（推荐新字段筛选）
 GET /api/customer-materials?customer_id=1&review_batch_id=10&status=pending&material_type=period_summary
 
-# 创建材料（新模型）
+# 创建材料（新流程：只写 raw_facts_markdown，summary/insights 留空）
 POST /api/customer-materials
 curl -X POST http://127.0.0.1:8000/api/customer-materials \
   -H 'Content-Type: application/json' \
@@ -541,27 +564,26 @@ curl -X POST http://127.0.0.1:8000/api/customer-materials \
     "customer_id": 1,
     "project_v2_id": null,
     "review_batch_id": 1,
-    "title": "佰世赛｜客户级｜2026-05-01 ~ 2026-05-07 客户事实与总结",
+    "title": "佰世赛｜客户级",
     "material_type": "period_summary",
     "period_start": "2026-05-01T00:00:00",
     "period_end": "2026-05-07T23:59:59",
     "raw_facts_markdown": "完整事实记录（不删减）...",
-    "summary_markdown": "简要纪要...",
-    "insights_markdown": "洞察 / 风险 / 下一步建议（AI 推导层）...",
+    "summary_markdown": null,
+    "insights_markdown": null,
     "status": "pending"
   }'
 
 # 详情
 GET /api/customer-materials/{id}
 
-# 审核/更新（新模型主字段）
+# 审核/更新（新流程只动 raw_facts_markdown / status / title）
 PATCH /api/customer-materials/{id}
 curl -X PATCH http://127.0.0.1:8000/api/customer-materials/1 \
   -H 'Content-Type: application/json' \
   -d '{
     "status": "approved",
-    "summary_markdown": "更新后的纪要",
-    "insights_markdown": "更新后的洞察"
+    "raw_facts_markdown": "南哥审核后微调过的事实原文..."
   }'
 
 # 标记已上传（上传 NotebookLM 成功后调用）
@@ -649,29 +671,142 @@ curl -X PATCH http://127.0.0.1:8000/api/review-batches/1 \
 | `area` | string(128) nullable | 归属分类，替代旧 `project` 的真实语义 |
 | `customer_id` | integer FK nullable | 关联客户 |
 | `project_id` | integer FK nullable | 关联项目 |
+| `source_type` | string(32) nullable | **2026-05-04 新增**。任务来源标签，仅作分类，不存原文。推荐枚举：`forwarded_message` / `screenshot` / `meeting_note` / `user_chat` / `manual_input`。后端不做硬枚举校验，可扩展。 |
 
 旧 `project` 字段保留，兼容旧 API 和前端。创建/更新任务时：如果只传旧 `project`，后端兼容写入 `area`；返回时也保留旧 `project` 字段。
 
-### 10.9 上传 NotebookLM 的拼接模板
+**`GET /api/tasks` 新增筛选参数（2026-05-04）：**
 
-审核通过后，上传到 NotebookLM 的 Markdown 按此模板拼接：
+| 参数 | 类型 | 说明 |
+|---|---|---|
+| `source_type` | string | 按来源标签精确匹配 |
+| `from` | datetime ISO8601 | `created_at >= from`（含），北京时间字符串可直传 |
+| `to` | datetime ISO8601 | `created_at < to`（不含） |
 
-```markdown
-# {customer.name}｜{project.name 或 "客户级"}｜{period_start} ~ {period_end} 客户事实与总结
-
-## 一、完整事实记录
-
-{raw_facts_markdown}
-
-## 二、简要纪要
-
-{summary_markdown}
-
-## 三、洞察 / 风险 / 下一步建议
-
-{insights_markdown}
+```bash
+# 列出本周转发类任务，做一致性检查
+curl 'http://127.0.0.1:8000/api/tasks?source_type=forwarded_message&from=2026-05-01T00:00:00&to=2026-05-08T00:00:00&limit=500'
 ```
 
-规则：三层结构不能合并、不能删减；`insights_markdown` 必须明确标注为 AI 推导层。上传时使用 nblm 的 `upload-text` 命令，靠客户名匹配 Notebook。
+### 10.9 上传 NotebookLM 的拼接模板（2026-05-04 修订）
+
+审核通过后，上传到 NotebookLM 的 Markdown **只保留单段事实层**：
+
+```markdown
+# {customer.name}｜{project.name 或 "客户级"}｜{period_start} ~ {period_end}
+
+{raw_facts_markdown}
+```
+
+规则：
+
+- **不再拼三段标题**（"完整事实记录 / 简要纪要 / 洞察建议"），即使数据库里旧 material 的 `summary_markdown` / `insights_markdown` 非空，也不要拼进上传内容。
+- `summary_markdown` / `insights_markdown` 由 NotebookLM 自带摘要 / 洞察能力在上传后生成，不在 cron 时点重复劳动。
+- 上传时使用 nblm 的 `upload-text` 命令，靠客户名匹配已有 Notebook。
+- 上传成功后必须 `POST /api/customer-materials/{id}/mark-uploaded`，把 status 推到 `uploaded`。
+
+### 10.10 审核回复约定
+
+南哥在飞书审核通过后，回复格式为：
+
+- `审核完成 #A #B #C`：上传指定 id 的 material（仅 `status=approved` 的会被上传）。
+- `审核完成 batch #N`：上传 batch #N 下所有 `status=approved` 的 material。
+
+主代理处理流程：
+
+1. 按 id / batch_id 读 material；
+2. 过滤 `status='approved'`，非 approved 的跳过并简短报告跳过原因（`pending` / `skipped` / 已 `uploaded`）；
+3. 按 10.9 模板拼 markdown；
+4. 调 nblm Skill 按客户名匹配 Notebook 上传；
+5. 上传成功后 `POST /api/customer-materials/{id}/mark-uploaded`；
+6. 整批完成后回报每份 material 上传成败。
+
+### 10.11 周期 cron 与脚本
+
+- **新链路 cron**：每周日 20:00 北京时间触发，执行 `python3 /home/velen/.openclaw/workspace/scripts/customer_materials_weekly.py`（type=shell，**不走 agentTurn / LLM**）。cron 配置由 OpenClaw 侧维护，不在 TaskCenter 仓库中。
+- **脚本职责**：拉本周 `confirmed` facts → 按 `customer_id + project_id` 分组 → 创建 `review_batch` → 为每组创建 `customer_material`（仅写 `raw_facts_markdown`）→ 建立 `customer_material_facts` 关联 → 一致性检查（扫本周 `source_type ∈ {forwarded_message, screenshot, meeting_note}` 但无关联 fact 的 task）→ stdout 输出 JSON。
+- **脚本输出格式**：
+
+```json
+{
+  "status": "ok",
+  "batch_id": 123,
+  "period": ["2026-04-27T00:00:00+08:00", "2026-05-04T00:00:00+08:00"],
+  "materials": [
+    {"id": 45, "customer": "佰世赛", "project": null, "fact_count": 3}
+  ],
+  "warnings": [
+    {"task_id": 87, "title": "...", "source_type": "screenshot", "reason": "missing_fact"}
+  ]
+}
+```
+
+无 fact 时输出 `{"status":"ok","message":"no_facts_this_week","period":[...],"warnings":[...]}`，不创建 batch。
+
+主代理消费此 JSON，转人类可读消息发到飞书，让南哥到 TaskCenter 移动端审核。**不发全文**，只发 batch_id + material id/客户/项目 + warning 列表。
 
 ---
+
+## 11. 转发 / 截图 / 会议纪要场景：两步走（硬约定）
+
+> 本节是 2026-05-04 修订的核心。主代理在以下三类场景中**必须**按 Step 1 → Step 2 配对调用，缺一不可。完整规则详见 `skills/task-center-customer-knowledge/SKILL.md`，本节只给可执行示例。
+
+### 11.1 触发条件
+
+| 场景 | 任务 `source_type` | fact `source_type` |
+|---|---|---|
+| 用户转发飞书消息 / 会话记录 | `forwarded_message` | `forwarded_message` |
+| 用户发截图 | `screenshot` | `screenshot_ocr`（建议）或 `screenshot` |
+| 用户给会议纪要 | `meeting_note` | `meeting_note` |
+
+### 11.2 Step 1：创建任务（带 `source_type`）
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/tasks \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "title": "佰世赛反馈增购 5 个账号需求，月底前推进合同",
+    "description": "客户在群里发来增购意向，需要本周内出合同方案。",
+    "due_at": "2026-05-08T18:00:00",
+    "customer_id": 1,
+    "project_id": null,
+    "tags": ["客户", "增购", "佰世赛"],
+    "source": "chat",
+    "source_type": "forwarded_message"
+  }'
+# 响应里拿到 task.id（例如 142）
+```
+
+### 11.3 Step 2：写入原文 fact（`task_id` 关联）
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/facts \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "customer_id": 1,
+    "project_id": null,
+    "task_id": 142,
+    "fact_date": "2026-05-04T10:30:00",
+    "title": "佰世赛提出增购 5 个账号",
+    "raw_markdown": "[原始转发内容，保留所有发言人/时间/原话，不删减、不加工]",
+    "source_type": "forwarded_message",
+    "value_types": ["客户需求", "商机/增购/续费"],
+    "status": "confirmed"
+  }'
+```
+
+### 11.4 自审清单（每次执行后输出）
+
+主代理执行完两步后，在回复里附带一行自审：
+
+```
+已写入：task #142 (source_type=forwarded_message), fact #87 (status=confirmed, raw_markdown 长度 N 字符)
+```
+
+### 11.5 禁止事项
+
+- **不允许**用 LLM 加工 / 总结 / 改写 `raw_markdown`，必须搬运用户原文。
+- **不允许**只建 task 不建 fact（脚本一致性检查会在每周 warning 中暴露）。
+- **不允许**把 fact 内容塞进 `task.description` 后省略 Step 2。
+- **不允许**调用 `POST /api/tasks/{id}/complete` 派生 fact——后端不会派生，主代理也不应代写。
+- **不允许**对普通 `user_chat` 提醒任务（如"晚上 9 点提醒我做 X"）写 fact。
