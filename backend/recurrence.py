@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from calendar import monthrange
-from datetime import datetime, time, timedelta
+from datetime import datetime, time, timedelta, tzinfo
 from zoneinfo import ZoneInfo
 
 from timeutils import APP_TIMEZONE, UTC, ensure_aware_datetime
@@ -70,7 +70,7 @@ def add_months(year: int, month: int, months: int) -> tuple[int, int]:
 
 
 
-def candidate_monthly_datetime(year: int, month: int, day_of_month: int, candidate_time: time, tz: ZoneInfo) -> datetime:
+def candidate_monthly_datetime(year: int, month: int, day_of_month: int, candidate_time: time, tz: tzinfo) -> datetime:
     max_day = monthrange(year, month)[1]
     day = min(day_of_month, max_day)
     return datetime(year, month, day, candidate_time.hour, candidate_time.minute, candidate_time.second, tzinfo=tz)
@@ -134,10 +134,13 @@ def compute_next_recurrence(
                 return current.astimezone(UTC)
             week_offset += interval
 
+    # validate_recurrence_payload above guarantees day_of_month is set when
+    # frequency == "monthly"; assert for the type checker.
+    assert day_of_month is not None
     months_added = 0
     while True:
         year, month = add_months(effective_anchor.year, effective_anchor.month, months_added)
-        current = candidate_monthly_datetime(year, month, int(day_of_month), candidate_time, tz)
+        current = candidate_monthly_datetime(year, month, day_of_month, candidate_time, tz)
         if current >= effective_anchor and current >= boundary:
             if end_boundary and current > end_boundary:
                 return None

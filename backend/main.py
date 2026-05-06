@@ -2,18 +2,19 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import date, datetime, time, timedelta
-from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from config import get_settings
-from db import Base, engine, get_db
-from models import BoardPreference, Customer, CustomerMaterial, CustomerMaterialFact, CustomerMaterialStatus, CustomerStatus, EventType, Fact, FactStatus, MaterialType, Project as ProjectV2, ProjectStatus, ProjectType, Reminder, ReminderStatus, ReviewBatch, ReviewBatchStatus, ReviewBatchType, Task, TaskEvent, TaskRecurrence, TaskStatus
+from db import Base, DATABASE_PATH as DB_PATH, engine, get_db
+from models import BoardPreference, Customer, CustomerMaterial, CustomerMaterialFact, CustomerMaterialStatus, CustomerStatus, EventType, Fact, MaterialType, Project as ProjectV2, ProjectStatus, ProjectType, Reminder, ReminderStatus, ReviewBatch, ReviewBatchStatus, ReviewBatchType, Task, TaskEvent, TaskRecurrence, TaskStatus
 from recurrence import compute_next_recurrence, normalize_days_of_week, normalize_time_of_day
 from timeutils import APP_TIMEZONE, UTC, local_date, local_day_bounds, now_local, now_utc, parse_datetime_string, to_storage_string
 from schemas import (
@@ -65,7 +66,14 @@ from schemas import (
 
 settings = get_settings()
 
-app = FastAPI(title="Task Center Backend", version="0.2.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    init_db()
+    yield
+
+
+app = FastAPI(title="Task Center Backend", version="0.2.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -73,7 +81,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-DB_PATH = Path(__file__).resolve().parent / "data" / "task_center.db"
 DATETIME_COLUMNS: dict[str, list[str]] = {
     "tasks": ["due_at", "created_at", "updated_at", "completed_at", "canceled_at", "deferred_to", "nightly_reviewed_at"],
     "reminders": ["remind_at", "created_at", "updated_at"],
@@ -86,12 +93,6 @@ DATETIME_COLUMNS: dict[str, list[str]] = {
     "review_batches": ["period_start", "period_end", "created_at", "updated_at"],
     "customer_material_facts": ["created_at"],
 }
-
-
-@app.on_event("startup")
-def on_startup() -> None:
-    init_db()
-
 
 
 def init_db() -> None:
@@ -1615,16 +1616,14 @@ def update_fact(fact_id: int, payload: FactUpdate, db: Session = Depends(get_db)
     return serialize_fact(fact)
 
 
-@app.delete("/api/facts/{fact_id}", response_model=FactRead)
-def delete_fact(fact_id: int, db: Session = Depends(get_db)) -> FactRead:
+@app.delete("/api/facts/{fact_id}", status_code=204)
+def delete_fact(fact_id: int, db: Session = Depends(get_db)) -> Response:
     fact = db.get(Fact, fact_id)
     if not fact:
         raise HTTPException(status_code=404, detail="Fact not found")
-    fact.status = FactStatus.REJECTED.value
-    db.add(fact)
+    db.delete(fact)
     db.commit()
-    db.refresh(fact)
-    return serialize_fact(fact)
+    return Response(status_code=204)
 
 
 # --- Review Batches ---

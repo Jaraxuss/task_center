@@ -1,0 +1,38 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+filterwarnings = [
+    # SQLAlchemy 2.x emits this on FastAPI's deprecated on_event hook; we'll fix it in Phase 1.
+    "ignore::DeprecationWarning:fastapi.*",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+extend-exclude = [".venv", "data", "scripts/__pycache__"]
+
+[tool.ruff.lint]
+# Conservative starter ruleset; can be tightened later.
+select = ["E", "F", "I", "B", "UP"]
+ignore = [
+    "E501",   # line length handled by formatter; keep loose for now
+    "B008",   # FastAPI Depends(...) defaults trip B008
+    "UP017",  # datetime.UTC alias is just a style preference; legacy code uses timezone.utc
+    "UP042",  # str-enum hint; legacy enums use str + Enum and that's fine for now
+    "UP037",  # quoted annotations are sometimes intentional for forward refs
+    "E402",   # tests/conftest.py intentionally imports after env setup
+]
+
+[tool.mypy]
+python_version = "3.12"
+# Start permissive at the project level; tighten per-module below.
+ignore_missing_imports = true
+follow_imports = "silent"
+warn_unused_ignores = true
+warn_redundant_casts = true
+
+# Strict islands: only the well-isolated pure-logic modules for now.
+# Add more modules here as Phase 1 services come online.
+[[tool.mypy.overrides]]
+module = ["recurrence", "timeutils", "config"]
+strict = true

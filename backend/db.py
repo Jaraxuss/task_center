@@ -5,10 +5,17 @@ from pathlib import Path
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = BASE_DIR / "data"
-DATA_DIR.mkdir(parents=True, exist_ok=True)
-DATABASE_URL = f"sqlite:///{DATA_DIR / 'task_center.db'}"
+from config import get_settings
+
+_settings = get_settings()
+
+DATABASE_PATH: Path = _settings.database_path
+DATABASE_URL: str = _settings.database_url
+
+# Only create the parent directory for real filesystem-backed SQLite databases.
+# In-memory or ":memory:" URLs have no meaningful parent directory.
+if str(DATABASE_PATH) != ":memory:" and DATABASE_PATH.parent and str(DATABASE_PATH.parent) not in {"", "."}:
+    DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 engine = create_engine(
     DATABASE_URL,
