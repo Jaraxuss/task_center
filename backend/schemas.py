@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Any
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from models import FactSourceType, FactStatus, CustomerMaterialStatus, CustomerStatus, MaterialType, ProjectStatus, ProjectType, ReminderStatus, ReviewBatchStatus, ReviewBatchType, TaskStatus
 from recurrence import normalize_days_of_week, normalize_time_of_day, validate_recurrence_payload
 from timeutils import APP_TIMEZONE, to_utc_datetime
 

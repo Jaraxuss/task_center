@@ -20,7 +20,6 @@ from sqlalchemy import create_engine, inspect
 import models  # noqa: F401  -- registers tables on Base.metadata
 from db import Base
 
-
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 
 

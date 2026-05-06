@@ -19,19 +19,18 @@ Usage:
 
 from __future__ import annotations
 
-import json
 import os
 import sys
 import tempfile
-from datetime import datetime, timezone
 
 # Ensure backend can be imported
 backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, backend_dir)
 
+from fastapi.testclient import TestClient
+
 import db as db_module
 from db import Base
-from fastapi.testclient import TestClient
 from main import app
 
 

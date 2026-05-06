@@ -34,5 +34,17 @@ warn_redundant_casts = true
 # Strict islands: only the well-isolated pure-logic modules for now.
 # Add more modules here as Phase 1 services come online.
 [[tool.mypy.overrides]]
-module = ["recurrence", "timeutils", "config"]
+module = [
+    "recurrence",
+    "timeutils",
+    "config",
+    "services.board",
+    "services.customer_materials",
+    "services.customers",
+    "services.dashboard",
+    "services.facts",
+    "services.json_utils",
+    "services.projects_v2",
+    "services.review_batches",
+]
 strict = true
