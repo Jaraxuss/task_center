@@ -208,6 +208,47 @@ def test_complete_unknown_task_returns_404(api_client: TestClient) -> None:
     assert response.status_code == 404
 
 
+# --- Filtering -------------------------------------------------------------
+
+
+def test_list_tasks_filter_by_customer_id(api_client: TestClient) -> None:
+    """``GET /api/tasks?customer_id=<id>`` should narrow to that customer only.
+
+    Also verifies ``project_id`` filter; the two are sibling FK filters added
+    together in 2026-05-07.
+    """
+    a1 = _create_task(api_client, title="客户A 任务1", customer_id=1, project_id=10)
+    a2 = _create_task(api_client, title="客户A 任务2", customer_id=1, project_id=11)
+    b1 = _create_task(api_client, title="客户B 任务", customer_id=2, project_id=20)
+    no_customer = _create_task(api_client, title="无客户任务")
+
+    # customer_id=1 → 只有 a1 / a2
+    response = api_client.get("/api/tasks?customer_id=1")
+    assert response.status_code == 200
+    ids = {item["id"] for item in response.json()}
+    assert ids == {a1["id"], a2["id"]}
+
+    # customer_id=2 → 只有 b1
+    response = api_client.get("/api/tasks?customer_id=2")
+    assert response.status_code == 200
+    assert {item["id"] for item in response.json()} == {b1["id"]}
+
+    # customer_id=999 不存在 → 空列表（不 404，过滤端点的常规行为）
+    response = api_client.get("/api/tasks?customer_id=999")
+    assert response.status_code == 200
+    assert response.json() == []
+
+    # project_id=10 → 仅 a1
+    response = api_client.get("/api/tasks?project_id=10")
+    assert response.status_code == 200
+    assert {item["id"] for item in response.json()} == {a1["id"]}
+
+    # 不传过滤 → 4 条全部出现
+    response = api_client.get("/api/tasks")
+    assert response.status_code == 200
+    assert {item["id"] for item in response.json()} == {a1["id"], a2["id"], b1["id"], no_customer["id"]}
+
+
 # --- Dashboard contracts --------------------------------------------------
 
 

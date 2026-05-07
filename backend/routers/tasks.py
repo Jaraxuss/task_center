@@ -56,6 +56,8 @@ def list_tasks(
     source_type: str | None = Query(default=None),
     created_from: datetime | None = Query(default=None, alias="from"),
     created_to: datetime | None = Query(default=None, alias="to"),
+    customer_id: int | None = Query(default=None),
+    project_id: int | None = Query(default=None),
     db: Session = Depends(get_db),
 ) -> list[TaskRead]:
     stmt = query_tasks(
@@ -65,6 +67,8 @@ def list_tasks(
         source_type=source_type,
         created_from=created_from,
         created_to=created_to,
+        customer_id=customer_id,
+        project_id=project_id,
     )
     if date_filter == "today":
         start, end = local_day_bounds(today_local())

@@ -54,6 +54,8 @@ def query_tasks(
     source_type: str | None = None,
     created_from: datetime | None = None,
     created_to: datetime | None = None,
+    customer_id: int | None = None,
+    project_id: int | None = None,
 ):
     stmt = select(Task).options(*task_load_options())
     if status:
@@ -67,6 +69,10 @@ def query_tasks(
         stmt = stmt.where(Task.created_at >= created_from)
     if created_to is not None:
         stmt = stmt.where(Task.created_at < created_to)
+    if customer_id is not None:
+        stmt = stmt.where(Task.customer_id == customer_id)
+    if project_id is not None:
+        stmt = stmt.where(Task.project_id == project_id)
     return stmt.order_by(Task.due_at.is_(None), Task.due_at.asc(), Task.created_at.desc())
 
 

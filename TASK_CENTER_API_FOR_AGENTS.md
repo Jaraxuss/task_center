@@ -26,6 +26,11 @@
 > - `DELETE /api/facts/{id}` 改为**物理删除**（旧实现是把 status 标 `rejected`）。关联表 `customer_material_facts.fact_id` 已 `ON DELETE CASCADE`，无需手动清理。
 > - `PATCH /api/facts/{id}` 现在被前端正式用来**改 customer 归属**：传 `customer_id: <int>` 切换、传 `clear_customer: true` 清空。schema 早已支持，本次只是补全前端入口。
 > - 移动端任务详情页新增"客户事实"区块（数据来源：`GET /api/facts?task_id={taskId}`，已存在端点，无新增）。
+>
+> **2026-05-07 修订（按客户聚合查询补齐）：**
+>
+> - `GET /api/tasks` 新增 `customer_id` / `project_id` 两个筛选参数（FK 精确匹配），与 `/api/facts`、`/api/projects-v2`、`/api/customer-materials` 已有的同名参数行为一致。例：`/api/tasks?customer_id=1`。
+> - 至此，**任意一个客户视图所需的四类列表**（任务 / 事实 / 项目 / 客户材料）都可以用统一的 `?customer_id=<id>` 检索，agent / 前端不再需要先拉全量再客户端过滤。
 
 ---
 
@@ -657,17 +662,28 @@ curl -X PATCH http://127.0.0.1:8000/api/review-batches/1 \
 
 旧 `project` 字段保留，兼容旧 API 和前端。创建/更新任务时：如果只传旧 `project`，后端兼容写入 `area`；返回时也保留旧 `project` 字段。
 
-**`GET /api/tasks` 新增筛选参数（2026-05-04）：**
+**`GET /api/tasks` 筛选参数：**
 
-| 参数 | 类型 | 说明 |
-|---|---|---|
-| `source_type` | string | 按来源标签精确匹配 |
-| `from` | datetime ISO8601 | `created_at >= from`（含），北京时间字符串可直传 |
-| `to` | datetime ISO8601 | `created_at < to`（不含） |
+| 参数 | 类型 | 说明 | 引入 |
+|---|---|---|---|
+| `status` | string | 任务状态精确匹配（`todo` / `doing` / `deferred` / `done` / `canceled`） | 一直存在 |
+| `q` | string | 标题 / 描述 / `project` 字段 ILIKE 模糊 | 一直存在 |
+| `date` | string | 仅支持 `today`，按本地日界裁剪 `due_at` | 一直存在 |
+| `source_type` | string | 按来源标签精确匹配 | 2026-05-04 |
+| `from` | datetime ISO8601 | `created_at >= from`（含），北京时间字符串可直传 | 2026-05-04 |
+| `to` | datetime ISO8601 | `created_at < to`（不含） | 2026-05-04 |
+| `customer_id` | int | 按客户 FK 精确匹配（`tasks.customer_id`） | 2026-05-07 |
+| `project_id` | int | 按项目 FK 精确匹配（`tasks.project_id`，对应 `projects-v2`） | 2026-05-07 |
 
 ```bash
 # 列出本周转发类任务，做一致性检查
 curl 'http://127.0.0.1:8000/api/tasks?source_type=forwarded_message&from=2026-05-01T00:00:00&to=2026-05-08T00:00:00&limit=500'
+
+# 客户 1 的全部任务
+curl 'http://127.0.0.1:8000/api/tasks?customer_id=1'
+
+# 客户 1 + 状态 doing
+curl 'http://127.0.0.1:8000/api/tasks?customer_id=1&status=doing'
 ```
 
 ### 10.9 上传 NotebookLM 的拼接模板（2026-05-04 修订）
