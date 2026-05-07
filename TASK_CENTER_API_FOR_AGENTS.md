@@ -36,13 +36,23 @@
 
 ## 1. 服务位置
 
-- 后端代码：`/home/velen/.openclaw/workspace/task_center/backend/main.py`
-- Schema 定义：`/home/velen/.openclaw/workspace/task_center/backend/schemas.py`
+后端项目根：`/home/velen/.openclaw/workspace/task_center/backend/`
+
+| 模块 | 路径 | 职责 |
+|---|---|---|
+| 入口 | `backend/main.py` | 仅 FastAPI app / lifespan / CORS / 注册 routers，约 100 行；不含业务逻辑 |
+| HTTP 路由 | `backend/routers/` | 按领域拆分：`tasks.py` / `dashboard.py` / `facts.py` / `customer_materials.py` / `customers.py` / `projects.py`（旧字符串项目，提供 `/api/projects` 与 rename）/ `projects_v2.py`（FK 项目，`/api/projects-v2`）/ `review_batches.py` / `preferences.py` / `health.py` |
+| 业务逻辑 | `backend/services/` | 同名服务模块（`tasks.py` / `dashboard.py` / `customer_materials.py` …），路由只编排、领域规则在这里 |
+| Pydantic schema | `backend/schemas.py` | 请求 / 响应模型（仍是单文件，后续可能拆分） |
+| ORM | `backend/models.py` | SQLAlchemy 模型 |
+| Alembic 迁移 | `backend/alembic/` | DB schema 版本管理 |
+
 - 本地 API Base URL：`http://127.0.0.1:8000`
 - 健康检查（仅调试 / 排障时使用）：`GET http://127.0.0.1:8000/api/health`
+- 看一个端点的实现 = 先去 `backend/routers/<domain>.py`，再跳 `backend/services/<domain>.py`。
 
 说明：
-- 文档契约 `docs/API_CONTRACT.md` 可参考，但若与真实行为冲突，以 `backend/main.py` + `backend/schemas.py` 为准。
+- 文档契约 `docs/API_CONTRACT.md` 可参考，但若与真实行为冲突，以 `backend/routers/*` + `backend/services/*` + `backend/schemas.py` 的实际代码为准。
 - 当前后端实际返回的是**裸对象 / 裸数组**，不是统一 `{data, meta}` 包装。
 - 日常提醒落账流程里，默认不先做 health 探测，直接调用业务接口。
 - 当前 `customer-materials` 已采用新模型为主、旧字段兼容模式。文档、agent、cron、skill **只公开调用 `/api/customer-materials`**，不再使用 `/api/customer-materials-v2`。
