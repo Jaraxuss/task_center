@@ -20,6 +20,12 @@
 > - `customer_materials` 的 5 个旧/兼容字段 —— `raw_source_markdown` / `candidate_markdown` / `summary_markdown` / `insights_markdown` / `review_note` —— **已从后端物理删除**。agent / 脚本 / 调用方**不应再传**这些字段（目前 Pydantic 默认 `extra='ignore'`，多传会被静默忽略，不会 422）。
 > - `customer_materials` 的唯一正文字段 = `raw_facts_markdown`。
 > - `/api/customer-materials-v2` 端点族**已从代码中删除**，调用会返回 404。所有客户材料操作统一走 `/api/customer-materials`。
+>
+> **2026-05-06 Phase 3 修订（继上条）：**
+>
+> - `DELETE /api/facts/{id}` 改为**物理删除**（旧实现是把 status 标 `rejected`）。关联表 `customer_material_facts.fact_id` 已 `ON DELETE CASCADE`，无需手动清理。
+> - `PATCH /api/facts/{id}` 现在被前端正式用来**改 customer 归属**：传 `customer_id: <int>` 切换、传 `clear_customer: true` 清空。schema 早已支持，本次只是补全前端入口。
+> - 移动端任务详情页新增"客户事实"区块（数据来源：`GET /api/facts?task_id={taskId}`，已存在端点，无新增）。
 
 ---
 
@@ -488,8 +494,10 @@ curl -X PATCH http://127.0.0.1:8000/api/facts/1 \
   -H 'Content-Type: application/json' \
   -d '{"status": "confirmed", "raw_markdown": "更新后内容"}'
 
-# 删除（建议改 status=rejected，不硬删）
+# 删除（物理删除，不可恢复；移动端"删除"按钮直接走这里）
+# 关联表 customer_material_facts.fact_id 已 ON DELETE CASCADE，无需手动清理
 DELETE /api/facts/{id}
+# → 204 No Content
 ```
 
 **source_type 可选值：** `chat` / `screenshot_ocr` / `task_completion` / `meeting_note` / `manual_input` / `forwarded_message` / `document`
