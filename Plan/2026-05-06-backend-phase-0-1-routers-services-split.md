@@ -1,15 +1,41 @@
-# 后端工程化 Phase 0 + Phase 1（2026-05-06 ~ 2026-05-07）
+# 后端工程化 Phase 0 + Phase 1（2026-05-06 起，含 Phase 1.A 已完成 / Phase 1.B 进行中）
 
-创建时间：2026-05-07（倒序落档，工作已完成）
+创建时间：2026-05-07（倒序落档；2026-05-07 下午校准为 Phase 1.A / 1.B 两阶段记法）
 负责人：南哥 / Cascade
-相关 commit：
-- `0a71c27` refactor(backend): Phase 0 + lifespan — test scaffolding, Alembic baseline, env-driven DB URL
-- `c1a60a9` refactor(backend): Phase 1 — split main.py into routers + services
-- `301ff8f` docs(skills): add commit-discipline skill（Phase 1 期间顺手补的协作规范）
-- `4dabef7` feat(tasks): /api/tasks 支持 customer_id / project_id 筛选（Phase 1 后第一个落在新结构上的功能改动）
-- `8108766` docs(agent-api): 更新 §1 服务位置以反映 routers/services 拆分
 
-目标：把 `backend/main.py` 从 1701 行的"全部 HTTP + 业务逻辑 + schema compat + 启动钩子"的胖文件，拆成**入口 / 路由 / 服务 / 模型 / schema / 迁移**六层骨架，并给这次拆分建立安全网（测试 + Alembic 基线 + mypy 严格岛）。
+## Phase 1 完整范围（按最初计划）
+
+按本会话开头的拆解，Phase 1 = **6 个子项**：
+
+1. **lifespan**（FastAPI 0.110+ 推荐写法，替换 deprecated `@app.on_event`）
+2. **拆 routers**（按 URL 前缀切 10 个 `routers/<domain>.py`）
+3. **提 services**（按领域切 10 个 `services/<domain>.py`，纯逻辑可进 mypy 严格岛）
+4. **拆 schemas**（`schemas.py` ~900 行 → `schemas/<domain>.py` 多文件，和 routers / services 三件套对齐）
+5. **公共 helper**（提取 routers PATCH / 序列化里重复的模板代码——`json.dumps(..., ensure_ascii=False)` 包装、`*_json` 字段的 set 模板、`clear_*` boolean + FK 的处理对子，等等）
+6. **JSON TypeDecorator**（`*_json` TEXT 列在 ORM 层自动 `loads` / `dumps`，删掉 `services/json_utils.py` 大部分代码 + 各 router 里手工 `json.dumps` 模板）
+
+## 进度（2026-05-07 下午）
+
+| 子项 | 状态 | 落地 commit |
+|---|---|---|
+| lifespan | ✅ 完成 | `0a71c27`（和 Phase 0 一起提交） |
+| 拆 routers | ✅ 完成 | `c1a60a9` |
+| 提 services | ✅ 完成 | `c1a60a9` |
+| 拆 schemas | ⏳ 待做 | Phase 1.B |
+| 公共 helper | ⏳ 待做 | Phase 1.B |
+| JSON TypeDecorator | ⏳ 待做 | Phase 1.B |
+
+本文档原版（commit `123f9c8` 落档时）把后三项错误归类成「Phase 2 候选」。本次校准把它们重新归回 Phase 1，命名为 **Phase 1.B 剩余工作**（见 §8）。真正的 Phase 2 候选另列 §9。
+
+相关 commit（按时间序）：
+- `0a71c27` refactor(backend): Phase 0 + lifespan — test scaffolding, Alembic baseline, env-driven DB URL
+- `c1a60a9` refactor(backend): Phase 1 — split main.py into routers + services（即 Phase 1.A 主体）
+- `301ff8f` docs(skills): add commit-discipline skill（Phase 1.A 期间顺手补的协作规范）
+- `4dabef7` feat(tasks): /api/tasks 支持 customer_id / project_id 筛选（Phase 1.A 后第一个落在新结构上的功能改动）
+- `8108766` docs(agent-api): 更新 §1 服务位置以反映 routers/services 拆分
+- `123f9c8` docs(plan): 本 Plan 初版（倒序落档 Phase 0 + Phase 1.A）
+
+目标：把 `backend/main.py` 从 1701 行的"全部 HTTP + 业务逻辑 + schema compat + 启动钩子"的胖文件，拆成**入口 / 路由 / 服务 / 模型 / schema / 迁移**六层骨架；并消除 `*_json` TEXT 列在路由层的样板代码、收敛重复的 PATCH 模板。给这次拆分建立安全网（测试 + Alembic 基线 + mypy 严格岛）。
 
 ---
 
@@ -28,8 +54,9 @@
 ### 0.3 本 Plan 的时间线
 
 - **Phase 0**（你在本会话之前完成）：工程安全网。commit `0a71c27` 在 2026-05-06 16:06 UTC 落地。
-- **Phase 1**（本会话完成）：`main.py` 拆分。commit `c1a60a9` 在 2026-05-06 晚落地。
-- **Phase 1 后续**：顺手补了 commit 纪律 skill（`301ff8f`）；基于新骨架做了第一个真功能改动（`4dabef7`，`/api/tasks?customer_id=...`）；修正了 agent 文档里"后端代码：main.py"这种被拆分前的描述（`8108766`）。
+- **Phase 1.A**（本会话完成）：lifespan + `main.py` 拆分（routers + services）。lifespan 包在 `0a71c27` 里、routers/services 拆分在 `c1a60a9`，2026-05-06 晚落地。
+- **Phase 1.A 后续**：顺手补了 commit 纪律 skill（`301ff8f`）；基于新骨架做了第一个真功能改动（`4dabef7`，`/api/tasks?customer_id=...`）；修正了 agent 文档里"后端代码：main.py"这种被拆分前的描述（`8108766`）；本 Plan 初版落档（`123f9c8`）。
+- **Phase 1.B**（本次校准后开工）：拆 schemas + 公共 helper + JSON TypeDecorator。预计跨多次会话；每个子项可独立提交、独立验证（pytest + ruff + mypy 严格岛全过）。
 
 ---
 
@@ -72,16 +99,17 @@
 - **`routers/projects.py` vs `routers/projects_v2.py`**：前者操作的是 `Task.project`（字符串 label，旧模型），后者是 `Project` 表（FK，客户视角的项目实体）。URL 前缀故意保留 v2 后缀区分，短期不合并——因为前端 / mobile 还在用旧的 `Task.project`，板分组也还按字符串分组。
 - **`services/board.py` vs `services/dashboard.py`**：前者只管 `BoardPreference` 表的读写 + 自定义排序元数据；后者是 today/plan/board/history 四种聚合视图的构造器。板偏好是配置，看板是展示，两件事。
 
-### 1.3 schema 不拆
+### 1.3 schema 拆分推迟到 Phase 1.B
 
-**决策**：`backend/schemas.py` **本次不拆**，继续做单文件（~900 行）。
+**决策**：`backend/schemas.py` 在 Phase 1.A **不拆**，留到 Phase 1.B 完成。
 
-**为什么**：
+**为什么 Phase 1.A 先不动**：
 
-- 拆 schemas 要回答一个比较难的问题：是按领域拆（`schemas/tasks.py`、`schemas/facts.py`…）还是按用途拆（`schemas/requests.py`、`schemas/responses.py`）？每种都有代价。
+- 拆 schemas 要回答一个比较难的问题：按领域拆（`schemas/tasks.py`、`schemas/facts.py`…）还是按用途拆（`schemas/requests.py`、`schemas/responses.py`）？
 - Pydantic 模型之间有互相引用（`TaskDetail` 引用 `ReminderRead` / `TaskRecurrenceRead` / `TaskEventRead`），跨文件拆要处理循环依赖。
-- 单个 `schemas.py` 900 行**不算太重**，和 `main.py` 1701 行+巨复杂控制流完全不是一个量级。
-- **留给 Phase 2 决定**。
+- Phase 1.A 已经在改 `main.py` + 新增 20 个文件，再叠 schemas 拆分会让 commit 体积失控、行为等价验证范围模糊。
+
+**Phase 1.B 的方案**（见 §8.1）：按领域拆，和 routers / services 的命名对齐（每个 domain 形成 router + service + schema 三件套）。建议和 §8.3 JSON TypeDecorator 一起做，避免同一个 schema 文件被动两次。
 
 ### 1.4 mypy 严格岛而不是全仓 strict
 
@@ -183,7 +211,7 @@ Phase 0 是 Phase 1 拆分的**前置安全网**：没有它，拆 1701 行的�
 
 ---
 
-## 3. Phase 1 已做（commit `c1a60a9`）
+## 3. Phase 1.A 已做（commit `c1a60a9`）
 
 ### 3.1 数字对账
 
@@ -334,9 +362,9 @@ SQLAlchemy 2.x `Select[tuple[Task]]` 的类型在 mypy 严格下稍繁，Phase 1
 
 见 §3.7。`c1a60a9` 里混入了部分 legacy 文件的 ruff 自动 fix。问题不大（全是无副作用的 style 改动），但不符合 `.codex/skills/commit/SKILL.md` §3 单一主题原则。下次做类似"大重构 + 工具自动 fix"组合时，先跑一次 `ruff --fix` 用 `style(...)` 单独提交，再做结构重构。
 
-### 6.5 `backend/schemas.py` 没拆
+### 6.5 `backend/schemas.py` 没拆（Phase 1.B 待办）
 
-~900 行单文件继续存在。**风险**：如果 Phase 2 引入 `JSON TypeDecorator`（见 §8），schema 里的一批 `*_json: str` 会变成 `dict/list`，改动面会跨领域扩散。拆不拆要在 Phase 2 决定前定方案。
+~900 行单文件继续存在。在 Phase 1.B 完成前的额外注意点：如果先做 §8.3 JSON TypeDecorator，schemas 里一批 `*_json: str` 会变成 `dict / list`，改动面跨领域扩散；建议 §8.1 schemas 拆分和 §8.3 TypeDecorator 协调好顺序（推荐先拆 schemas、再做 TypeDecorator，让 TypeDecorator 的字段改写在每个 schema 文件内本地完成）。
 
 ---
 
@@ -359,46 +387,138 @@ git revert 0a71c27   # 回到工程化前的原始代码（但会丢测试脚手
 
 ---
 
-## 8. Phase 2 候选（未来工作）
+## 8. Phase 1.B 剩余工作
 
-下面几项按价值和成本粗排，不是都要做。
+按最初的 Phase 1 范围，下面三项是必须做完的（不是可选）。建议按 §8.1 → §8.2 → §8.3 的顺序，每一项独立 commit、独立跑全套验证。
 
-### 8.1 `services/tasks.py::query_tasks` 补类型 + 进严格岛
+### 8.1 拆 `schemas.py`
 
-小改动，**推荐**。成本极低，把 `services` 里最大的一个模块纳入严格岛，严格岛从"80% 覆盖率"提到"接近 100%"。
+**目标**：`backend/schemas.py` 按领域拆成 `backend/schemas/__init__.py` + `backend/schemas/<domain>.py`，和 routers / services 的命名对齐，形成「router + service + schema 三件套」。
 
-### 8.2 JSON `TypeDecorator`
+**拆分粒度**（草案，落地时可调）：
 
-把 `*_json` TEXT 列改成用 `TypeDecorator`，ORM 层自动 `loads` / `dumps`，router 和 service 就不用到处 `json.dumps(..., ensure_ascii=False)` / `json.loads(... or "[]")` 了。
+- `schemas/common.py`：跨领域的小类型 + Literal 别名（`CustomerStatusValue` / `ProjectStatusValue` / `FactStatusValue` / `TaskStatusValue` / …）+ `normalize_project_name` 之类的 helper。
+- `schemas/tasks.py`：`TaskBase` / `TaskCreate` / `TaskUpdate` / `TaskRead` / `TaskDetail` / `TaskEventRead` / `ReminderRead` / `TaskRecurrenceRead` / `TaskRecurrenceWrite` / `ProjectRenameRequest` / `BoardPreferenceRead` / `BoardPreferenceUpdate`。
+- `schemas/dashboard.py`：`HealthResponse` / `NightlyReviewPlaceholder` / dashboard 系列响应。
+- `schemas/customer_materials.py`：`CustomerMaterialRead` / `Create` / `Update`。
+- `schemas/customers.py`：`CustomerRead` / `Create` / `Update`。
+- `schemas/projects_v2.py`：`ProjectV2Read` / `Create` / `Update`。
+- `schemas/facts.py`：`FactRead` / `Create` / `Update`。
+- `schemas/review_batches.py`：`ReviewBatchRead` / `Create` / `Update`。
+- `schemas/__init__.py`：**完全 re-export 旧 `schemas` 模块的所有公开符号**，让 `from schemas import TaskRead` 这种现有用法继续工作（routers / services / tests / scripts 全都不改）。
 
-- **好处**：删掉 `services/json_utils.py` 大部分代码；router PATCH 里一堆 "if 'tags' in updates: model.tags_json = json.dumps(...)" 的模板代码也能消掉。
-- **成本**：schema 里 `tags: list[str] = Field(..., alias="tags_json")` 这类字段要重新梳理；Alembic 一次迁移（只是类型声明，SQLite 层依然 TEXT）。
-- **风险**：历史脏数据（坏 JSON）在 load 阶段就会 raise，不再能被 `parse_json_list` 吞掉——需要先跑一次清洗脚本扫全库。
+**风险点**：
 
-### 8.3 `schemas.py` 拆分
+- **循环引用**：`TaskDetail` 引用 `ReminderRead` / `TaskRecurrenceRead` / `TaskEventRead`——它们都在 `schemas/tasks.py` 里同一文件，这是合并而非循环。如果跨文件需要前向引用，用 `from __future__ import annotations` + `model_rebuild()`。
+- **Pydantic v2 model_validator / field_validator**：跨模型的 validator 不要散在多文件，集中在 `schemas/<domain>.py` 内。
+- **常量名稳定**：所有从 `schemas` 直接 import 的名字，**`schemas/__init__.py` 必须 100% re-export**。可以临时跑一遍 `grep -r "from schemas import" backend/ frontend/` 列出全部依赖，对账。
 
-按领域拆（`schemas/tasks.py` / `schemas/facts.py` / …），和 routers/services 的命名对齐。**成本**：循环引用的梳理；`response_model=TaskDetail` 这种跨文件引用要调整 import。**收益**：每个 domain 自包含（router + service + schema 三件套）。建议和 §8.2 一起做，避免同一个 schema 文件被动两次。
+**验证**：60 测试全过；ruff clean；mypy 严格岛若已包含 schemas 子模块，要 clean。
 
-### 8.4 `routers/projects.py` vs `routers/projects_v2.py` 最终合并
+### 8.2 公共 helper（routers / services 模板代码收敛）
 
-等 UI 全部迁到 FK 项目后，淘汰 `Task.project` 字段。这是跨前端 / mobile / 后端的大动作，不属于纯后端 Phase。
+**目标**：消除 routers / services 里观察到的几类重复模板代码。Phase 1.A 拆完之后这些重复变得显眼，但当时没动以保证「行为等价」。
 
-### 8.5 清理 `main.py` re-export
+**已识别的重复模式**：
 
-删掉 4 个 re-export + 改 `seed_demo.py` / `scripts/normalize_customer_projects.py`。小改动，可以任何时候顺手做；也可以干脆不做，留着不碍事。
+1. **`json.dumps(..., ensure_ascii=False)` 散落**（routers/customers.py / projects_v2.py / facts.py / review_batches.py / customer_materials.py / preferences.py 的 PATCH/POST 都在写）。**预计 §8.3 JSON TypeDecorator 落地后会消失大部分**，但有少数动态决定的字段（如 `value_types`）依然要手写——可以提一个极薄的 `services/json_utils.py::dump_json(value)` 收敛。
+2. **PATCH 里的 `clear_<fk>` 处理**：`routers/projects_v2.py::update_project_v2`、`routers/facts.py::update_fact` 都有一段「pop `clear_customer` / `clear_project` / `clear_task`，updates 里赋值后再根据 boolean 把 FK 设回 None」的样板代码。可以做一个 `apply_patch(model, updates, *, fk_clears: dict[str, str])` helper。但要小心**不要过度抽象**——就两三个 router 用，宁可重复也别造一个谁都不想读的 mini-DSL。
+3. **`db.get(Model, id) → 404`**：`routers/*` 里反复写 `entity = db.get(Model, id)` + `if not entity: raise HTTPException(404, "... not found")`。FastAPI 没有内置好用的 helper；可以加一个 `services/common.py::get_or_404(db, Model, id, name="<noun>")`。**这个值得做**，覆盖面广。
+4. **list 端点的 ILIKE 拼接**：`routers/customers.py::list_customers` 和 `routers/customer_materials.py::list_customer_materials` 都拿 `q` 拼 `%{q}%` 然后 `or_(field1.ilike, field2.ilike, ...)`。可以但不强求收敛，因为字段集合每个 domain 不一样。
 
-### 8.6 考虑把 `services/schema_compat.py` 里的手写 ALTER 删除
+**验证**：必须维持行为等价，所有现有测试全过。helper 本身建议加单元测试。
 
-Alembic baseline 已经覆盖了当前 schema，`ensure_schema_compatibility()` 里那条从 v1 → v2 的手写 ALTER 链**理论上**已经不需要了（所有新部署都走 `alembic upgrade head`）。但：
+**反诱惑**：不要顺手把 routers / services 改成 "通用 CRUD generator"。这条路通向不可读的元编程，本仓的领域规则差异不足以支撑。
 
-- 有没有存量生产 DB 还在用 v1？——需要确认。
-- 删掉后如果有 DB 没升级，启动会 500。
+### 8.3 JSON `TypeDecorator`
 
-**建议**：等确认所有生产 DB 已经 `alembic stamp head` 后再删，或者先加一条 Alembic revision 做等价 migration，然后删手写链。
+**目标**：`models.py` 里所有 `*_json: Mapped[str]`（TEXT 列存 JSON 字符串）改成 `Mapped[dict[str, Any]]` / `Mapped[list[str]]`，配一个 `JSONText` `TypeDecorator`，自动 `loads` / `dumps`。
+
+**当前 TEXT JSON 列清单**（落地前再核对一遍）：
+
+- `Task.tags_json` (list[str])
+- `BoardPreference.task_order_json` / `pinned_projects_json` / `project_order_json`（list[str] / dict[str, list[str]] / list[str]）
+- `Customer.aliases_json` / `tags_json`
+- `Project.tags_json`
+- `CustomerMaterial.source_refs_json` / `generation_meta_json`
+- `Fact.value_types_json`
+- 其他可能漏掉的——靠 `grep -nE '_json' backend/models.py` 拉清单。
+
+**实现要点**：
+
+```python
+# services/sa_types.py（新文件）
+class JSONText(TypeDecorator):
+    impl = Text
+    cache_ok = True
+    def process_bind_param(self, value, dialect):
+        if value is None: return None
+        return json.dumps(value, ensure_ascii=False)
+    def process_result_value(self, value, dialect):
+        if value is None or value == "": return None
+        try: return json.loads(value)
+        except json.JSONDecodeError: return None  # 容错：脏数据返回 None
+```
+
+**收益**：
+
+- 删掉 `services/json_utils.py` 大部分代码（`parse_json_list` / `parse_json_object` 不再被 service 调用）。
+- routers PATCH 里 `if "tags" in updates: customer.tags_json = json.dumps(updates["tags"], ...)` 这堆模板**全部消失**——直接 `customer.tags = updates["tags"]`。
+- schemas 的 `tags_json: str` / `tags: list[str]` 双字段 + `model_validator` 拼接逻辑可以简化。
+
+**风险**：
+
+- **历史脏数据**：现有生产 DB 里如果某行 `tags_json` 是 `"hello"`（坏 JSON），新 ORM load 会 raise（除非 `process_result_value` 做容错——草案里返回 None）。**强烈建议**：
+  1. 落地前跑一次扫描脚本，列出所有坏 JSON 的行。
+  2. 选择策略：要么写 SQL 修复，要么 `process_result_value` 用 try/except 兜底返回 `None` / `[]`。
+- **schema 字段语义变化**：`Task.tags` 之前是 `Mapped[str]`（TEXT JSON），现在是 `Mapped[list[str]]`。所有访问点（`task.tags_json`、`json.loads(task.tags_json)`）都要改。这是跨 routers / services / dashboard / tests 的批量改动，需要 `grep -rn "_json"` 全仓搜一遍。
+- **Pydantic schema**：`TaskRead.tags: list[str]` 等字段已经是 list 形式（通过 validator 转换），落地后 validator 改简单，但**响应 JSON 字段名要保持** —— 注意 Pydantic 的 alias / serialization_alias 用法。
+- **Alembic 迁移**：只是类型声明变化，SQLite 层依然 TEXT，**不需要 schema 迁移**。但建议加一条空 migration 做"标记已升级"的 marker，避免后人困惑。
+
+**验证**：
+- 所有现有 60 测试全过。
+- 加专门测试覆盖 `JSONText`：None / "" / 合法 JSON / 坏 JSON 四种 round-trip。
+- 起一次本地服务，对 `Customer` / `Task` / `Fact` 各做一次 list / get / patch，肉眼对比响应 JSON 和 Phase 1.A 时的版本。
+
+### 8.4 Phase 1.B 完成的退出条件
+
+- 60+ 测试全过（其中至少新增：schemas 拆分对账测试 1+、JSONText round-trip 测试 4、`get_or_404` 单测 2）。
+- ruff clean。
+- mypy 严格岛扩到 schemas 子包（每个 schema 子文件本身是纯 Pydantic，应当能进岛）。
+- `services/json_utils.py` 行数从 41 降到 ≤10 或彻底删掉。
+- `routers/*.py` 里 `json.dumps` 出现次数 ≈ 0（grep 验证）。
+- 本 Plan 加一节「Phase 1.B 已做」记录实际落地情况，类似 §3 之于 Phase 1.A。
 
 ---
 
-## 9. 附录：关键文件速查
+## 9. Phase 2 候选（未来工作，与 Phase 1 收尾无关）
+
+Phase 1.B 完成之后才考虑这些。
+
+### 9.1 `services/tasks.py::query_tasks` 补返回类型 + 进严格岛
+
+小改动。补 `-> Select[tuple[Task]]` 类型并把 `services.tasks` 加进 mypy 严格岛，覆盖率从 80% 提到接近 100%。Phase 1.B 收尾后的第一个低成本收益点。
+
+### 9.2 `routers/projects.py` vs `routers/projects_v2.py` 最终合并
+
+等 UI（前端 + mobile）全部迁到 FK 项目、`Task.project_id` 数据补全后，淘汰 `Task.project` 字符串字段。跨前端 / mobile / 后端的大动作，不属于纯后端 Phase。
+
+### 9.3 清理 `main.py` re-export
+
+删掉 4 个 re-export（`init_db` / `add_event` / `rename_project` / `update_task`） + 改 `seed_demo.py` / `scripts/normalize_customer_projects.py`。小改动，可以任何时候顺手做；也可以不做，留着不碍事。
+
+### 9.4 考虑删除 `services/schema_compat.py` 的手写 ALTER 链
+
+Alembic baseline 已经覆盖了当前 schema，`ensure_schema_compatibility()` 里那条 v1 → v2 手写 ALTER 链**理论上**已经不需要了（所有新部署都走 `alembic upgrade head`）。但：
+
+- 有没有存量生产 DB 还在用 v1？需要确认。
+- 删掉后如果有 DB 没升级，启动会 500。
+
+**建议**：等确认所有生产 DB 已经 `alembic stamp head` 后再删；或者先加一条 Alembic revision 做等价 migration，然后删手写链。
+
+---
+
+## 10. 附录：关键文件速查
 
 | 文件 | 行数（2026-05-07） | 关键 |
 |---|---|---|
@@ -408,13 +528,13 @@ Alembic baseline 已经覆盖了当前 schema，`ensure_schema_compatibility()` 
 | `backend/routers/facts.py` | 119 | 事实 CRUD |
 | `backend/services/tasks.py` | 310 | 重构后最大的 service，含 recurrence |
 | `backend/services/dashboard.py` | 192 | 看板 / 今日 / 计划 / 历史聚合 |
-| `backend/services/schema_compat.py` | 144 | 遗留手写 ALTER 链（见 §8.6） |
+| `backend/services/schema_compat.py` | 144 | 遗留手写 ALTER 链（见 §9.4） |
 | `backend/services/customer_materials.py` | 112 | 材料序列化 + 引用校验 |
 | `backend/services/board.py` | 81 | 板偏好 + 自定义排序元数据 |
-| `backend/services/json_utils.py` | 41 | 容错 JSON 解析 |
-| `backend/schemas.py` | ~900 | 未拆，待 Phase 2 决定 |
+| `backend/services/json_utils.py` | 41 | 容错 JSON 解析（Phase 1.B §8.3 落地后大幅缩水或删除） |
+| `backend/schemas.py` | ~900 | 单文件，Phase 1.B §8.1 待拆 |
 | `backend/pyproject.toml` | 51 | ruff + mypy 严格岛名单 |
 
 ---
 
-**—— 以上记录结束。Phase 0 + Phase 1 的目标已达成：`main.py` 不再是"所有改动的战场"，新功能（`4dabef7` 的 `customer_id` 过滤就是第一个例子）天然落在正确的 router + service 位置。**
+**—— Phase 0 + Phase 1.A 的目标已达成：`main.py` 不再是"所有改动的战场"，新功能（`4dabef7` 的 `customer_id` 过滤就是第一个例子）天然落在正确的 router + service 位置。Phase 1.B 三项（schemas 拆分 / 公共 helper / JSON TypeDecorator）开始执行后，会在本文件追加 §3.B 实录。**
