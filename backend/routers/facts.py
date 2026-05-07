@@ -21,6 +21,7 @@ router = APIRouter(prefix="/api/facts", tags=["facts"])
 def list_facts(
     customer_id: int | None = Query(default=None),
     project_id: int | None = Query(default=None),
+    project_unassigned: bool = Query(default=False),
     task_id: int | None = Query(default=None),
     status: str | None = Query(default=None),
     source_type: str | None = Query(default=None),
@@ -30,11 +31,16 @@ def list_facts(
     limit: int = Query(default=100, ge=1, le=500),
     db: Session = Depends(get_db),
 ) -> list[FactRead]:
+    if project_id is not None and project_unassigned:
+        raise HTTPException(status_code=400, detail="cannot specify both project_id and project_unassigned")
+
     stmt = select(Fact)
     if customer_id is not None:
         stmt = stmt.where(Fact.customer_id == customer_id)
     if project_id is not None:
         stmt = stmt.where(Fact.project_id == project_id)
+    if project_unassigned:
+        stmt = stmt.where(Fact.project_id.is_(None))
     if task_id is not None:
         stmt = stmt.where(Fact.task_id == task_id)
     if status:

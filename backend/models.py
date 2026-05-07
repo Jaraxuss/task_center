@@ -334,3 +334,13 @@ class BoardPreference(Base):
     project_order_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     created_at: Mapped[datetime] = mapped_column(UTCDateTimeText(), nullable=False, default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTimeText(), nullable=False, default=now_utc, onupdate=now_utc)
+
+
+class KnowledgePreference(Base):
+    __tablename__ = "knowledge_preferences"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    pinned_customer_ids_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    customer_order_ids_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    created_at: Mapped[datetime] = mapped_column(UTCDateTimeText(), nullable=False, default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTimeText(), nullable=False, default=now_utc, onupdate=now_utc)

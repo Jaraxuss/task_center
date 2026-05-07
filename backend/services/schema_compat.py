@@ -63,6 +63,19 @@ def ensure_schema_compatibility() -> None:
         if board_preference_columns and "project_order_json" not in board_preference_columns:
             cur.execute("ALTER TABLE board_preferences ADD COLUMN project_order_json TEXT NOT NULL DEFAULT '[]'")
 
+        # --- knowledge_preferences ---
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='knowledge_preferences'")
+        if not cur.fetchone():
+            cur.execute("""
+                CREATE TABLE knowledge_preferences (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    pinned_customer_ids_json TEXT NOT NULL DEFAULT '[]',
+                    customer_order_ids_json TEXT NOT NULL DEFAULT '[]',
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+                )
+            """)
+
         # --- customer_materials: add v2 columns ---
         cur.execute("PRAGMA table_info(customer_materials)")
         cm_columns = {row[1] for row in cur.fetchall()}

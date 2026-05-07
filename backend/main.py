@@ -31,6 +31,9 @@ from routers import (
     health as health_router,
 )
 from routers import (
+    knowledge as knowledge_router,
+)
+from routers import (
     preferences as preferences_router,
 )
 from routers import (
@@ -73,6 +76,7 @@ app.add_middleware(
 # Routers
 app.include_router(health_router.router)
 app.include_router(preferences_router.router)
+app.include_router(knowledge_router.router)
 app.include_router(projects_router.router)
 app.include_router(tasks_router.router)
 app.include_router(dashboard_router.router)

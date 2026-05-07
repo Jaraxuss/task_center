@@ -45,6 +45,17 @@ def upgrade() -> None:
     with op.batch_alter_table('board_preferences', schema=None) as batch_op:
         batch_op.create_index(batch_op.f('ix_board_preferences_id'), ['id'], unique=False)
 
+    op.create_table('knowledge_preferences',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('pinned_customer_ids_json', sa.Text(), nullable=False),
+    sa.Column('customer_order_ids_json', sa.Text(), nullable=False),
+    sa.Column('created_at', models.UTCDateTimeText(), nullable=False),
+    sa.Column('updated_at', models.UTCDateTimeText(), nullable=False),
+    sa.PrimaryKeyConstraint('id')
+    )
+    with op.batch_alter_table('knowledge_preferences', schema=None) as batch_op:
+        batch_op.create_index(batch_op.f('ix_knowledge_preferences_id'), ['id'], unique=False)
+
     op.create_table('customers',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('name', sa.String(length=128), nullable=False),
@@ -364,4 +375,8 @@ def downgrade() -> None:
         batch_op.drop_index(batch_op.f('ix_board_preferences_id'))
 
     op.drop_table('board_preferences')
+    with op.batch_alter_table('knowledge_preferences', schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f('ix_knowledge_preferences_id'))
+
+    op.drop_table('knowledge_preferences')
     # ### end Alembic commands ###
