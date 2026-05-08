@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from models import Project as ProjectV2
 from schemas import ProjectV2Read
-from services.json_utils import parse_json_list
 
 
 def serialize_project_v2(project: ProjectV2) -> ProjectV2Read:
@@ -15,7 +14,7 @@ def serialize_project_v2(project: ProjectV2) -> ProjectV2Read:
         name=project.name,
         status=project.status,
         area=project.area,
-        tags=parse_json_list(project.tags_json),
+        tags=project.tags or [],
         start_at=project.start_at,
         target_end_at=project.target_end_at,
         actual_end_at=project.actual_end_at,

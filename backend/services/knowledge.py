@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from collections import defaultdict
 
 from sqlalchemy import select
@@ -163,15 +162,8 @@ def get_knowledge_preference(db: Session) -> KnowledgePreference:
 
 
 def serialize_knowledge_preference(pref: KnowledgePreference) -> KnowledgePreferenceRead:
-    try:
-        pinned = [int(item) for item in json.loads(pref.pinned_customer_ids_json or "[]") if int(item) > 0]
-    except Exception:
-        pinned = []
-
-    try:
-        order = [int(item) for item in json.loads(pref.customer_order_ids_json or "[]") if int(item) > 0]
-    except Exception:
-        order = []
+    pinned = [int(item) for item in (pref.pinned_customer_ids or []) if int(item) > 0]
+    order = [int(item) for item in (pref.customer_order_ids or []) if int(item) > 0]
 
     normalized_pinned: list[int] = []
     for cid in pinned:

@@ -10,7 +10,7 @@ from services.common import get_or_404
 
 
 def test_get_or_404_returns_entity(db_session: Session) -> None:
-    customer = Customer(name="Acme", aliases_json="[]", tags_json="[]")
+    customer = Customer(name="Acme")
     db_session.add(customer)
     db_session.commit()
     db_session.refresh(customer)

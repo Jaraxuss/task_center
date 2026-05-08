@@ -7,8 +7,6 @@ Projects here are the legacy string label associated with each task
 
 from __future__ import annotations
 
-import json
-
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -54,11 +52,11 @@ def rename_project(payload: ProjectRenameRequest, db: Session = Depends(get_db))
     project_order = serialized_preference.project_order
     if payload.old_name in pinned_projects:
         pinned_projects = [payload.new_name if name == payload.old_name else name for name in pinned_projects]
-        preference.pinned_projects_json = json.dumps(pinned_projects, ensure_ascii=False)
+        preference.pinned_projects = pinned_projects
         db.add(preference)
     if payload.old_name in project_order:
         project_order = [payload.new_name if name == payload.old_name else name for name in project_order]
-        preference.project_order_json = json.dumps(project_order, ensure_ascii=False)
+        preference.project_order = project_order
         db.add(preference)
 
     db.commit()

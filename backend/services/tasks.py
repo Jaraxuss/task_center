@@ -8,7 +8,6 @@ mutation endpoint.
 
 from __future__ import annotations
 
-import json
 from datetime import date, datetime
 from typing import Any
 
@@ -100,13 +99,13 @@ def serialize_recurrence(recurrence: TaskRecurrence | None) -> TaskRecurrenceRea
         interval=recurrence.interval,
         timezone=recurrence.timezone,
         time_of_day=recurrence.time_of_day,
-        days_of_week=json.loads(recurrence.days_of_week_json or "[]"),
+        days_of_week=recurrence.days_of_week or [],
         day_of_month=recurrence.day_of_month,
         start_at=recurrence.start_at,
         end_at=recurrence.end_at,
         next_run_at=recurrence.next_run_at,
         last_run_at=recurrence.last_run_at,
-        reminder_offsets_minutes=json.loads(recurrence.reminder_offsets_json or "[]"),
+        reminder_offsets_minutes=recurrence.reminder_offsets_minutes or [],
         created_at=recurrence.created_at,
         updated_at=recurrence.updated_at,
     )
@@ -123,7 +122,7 @@ def serialize_task(task: Task) -> TaskRead:
         area=getattr(task, "area", None),
         customer_id=getattr(task, "customer_id", None),
         project_id=getattr(task, "project_id", None),
-        tags=json.loads(task.tags_json or "[]"),
+        tags=task.tags or [],
         source=task.source,
         source_type=getattr(task, "source_type", None),
         created_at=task.created_at,
@@ -144,7 +143,7 @@ def serialize_event(event: TaskEvent) -> TaskEventRead:
         id=event.id,
         task_id=event.task_id,
         event_type=event.event_type,
-        payload=json.loads(event.payload_json or "{}"),
+        payload=event.payload or {},
         created_at=event.created_at,
     )
 
@@ -171,7 +170,7 @@ def add_event(db: Session, task: Task, event_type: str, payload: dict[str, Any] 
         TaskEvent(
             task_id=task.id,
             event_type=event_type,
-            payload_json=json.dumps(payload or {}, ensure_ascii=False),
+            payload=payload or {},
         )
     )
 
@@ -188,13 +187,13 @@ def recurrence_event_payload(recurrence: TaskRecurrence) -> dict[str, Any]:
         "interval": recurrence.interval,
         "timezone": recurrence.timezone,
         "time_of_day": recurrence.time_of_day,
-        "days_of_week": json.loads(recurrence.days_of_week_json or "[]"),
+        "days_of_week": recurrence.days_of_week or [],
         "day_of_month": recurrence.day_of_month,
         "start_at": recurrence.start_at.isoformat() if recurrence.start_at else None,
         "end_at": recurrence.end_at.isoformat() if recurrence.end_at else None,
         "next_run_at": recurrence.next_run_at.isoformat() if recurrence.next_run_at else None,
         "last_run_at": recurrence.last_run_at.isoformat() if recurrence.last_run_at else None,
-        "reminder_offsets_minutes": json.loads(recurrence.reminder_offsets_json or "[]"),
+        "reminder_offsets_minutes": recurrence.reminder_offsets_minutes or [],
     }
 
 
@@ -217,7 +216,7 @@ def compute_recurrence_next_run(
         anchor_at=anchor,
         after_dt=after_dt,
         time_of_day=recurrence.time_of_day,
-        days_of_week=json.loads(recurrence.days_of_week_json or "[]"),
+        days_of_week=recurrence.days_of_week or [],
         day_of_month=recurrence.day_of_month,
         start_at=recurrence.start_at,
         end_at=recurrence.end_at,
@@ -232,13 +231,11 @@ def upsert_recurrence(db: Session, task: Task, payload: TaskRecurrenceWrite) -> 
     recurrence.interval = payload.interval
     recurrence.timezone = payload.timezone
     recurrence.time_of_day = normalize_time_of_day(payload.time_of_day)
-    recurrence.days_of_week_json = json.dumps(normalize_days_of_week(payload.days_of_week), ensure_ascii=False)
+    recurrence.days_of_week = normalize_days_of_week(payload.days_of_week)
     recurrence.day_of_month = payload.day_of_month
     recurrence.start_at = payload.start_at
     recurrence.end_at = payload.end_at
-    recurrence.reminder_offsets_json = json.dumps(
-        sorted({int(item) for item in payload.reminder_offsets_minutes}), ensure_ascii=False
-    )
+    recurrence.reminder_offsets_minutes = sorted({int(item) for item in payload.reminder_offsets_minutes})
 
     anchor = recurrence_anchor(task, payload)
     recurrence.next_run_at = (

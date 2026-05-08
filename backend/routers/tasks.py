@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -93,7 +92,7 @@ def create_task(payload: TaskCreate, db: Session = Depends(get_db)) -> TaskDetai
         area=getattr(payload, "area", None),
         customer_id=getattr(payload, "customer_id", None),
         project_id=getattr(payload, "project_id", None),
-        tags_json=json.dumps(payload.tags, ensure_ascii=False),
+        tags=payload.tags,
         source=payload.source,
         source_type=getattr(payload, "source_type", None),
     )
@@ -129,8 +128,6 @@ def update_task(task_id: int, payload: TaskUpdate, db: Session = Depends(get_db)
     clear_recurrence_requested = bool(updates.pop("clear_recurrence", False))
     updates.pop("clear_customer", None)
     updates.pop("clear_project_v2", None)
-    if "tags" in updates:
-        task.tags_json = json.dumps(updates.pop("tags"), ensure_ascii=False)
     for field, value in updates.items():
         setattr(task, field, value)
 

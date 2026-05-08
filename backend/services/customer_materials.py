@@ -22,7 +22,6 @@ from models import (
     Project as ProjectV2,
 )
 from schemas import CustomerMaterialFactRead, CustomerMaterialRead
-from services.json_utils import parse_json_list, parse_json_object
 
 
 def serialize_customer_material(material: CustomerMaterial) -> CustomerMaterialRead:
@@ -33,8 +32,8 @@ def serialize_customer_material(material: CustomerMaterial) -> CustomerMaterialR
         material_date=material.material_date,
         source_type=material.source_type,
         source=material.source,
-        source_refs=parse_json_object(material.source_refs_json),
-        value_types=parse_json_list(material.value_types_json),
+        source_refs=material.source_refs or {},
+        value_types=material.value_types or [],
         status=material.status,
         task_id=material.task_id,
         created_at=material.created_at,
@@ -48,7 +47,7 @@ def serialize_customer_material(material: CustomerMaterial) -> CustomerMaterialR
         period_start=getattr(material, "period_start", None),
         period_end=getattr(material, "period_end", None),
         raw_facts_markdown=getattr(material, "raw_facts_markdown", None),
-        generation_meta=parse_json_object(getattr(material, "generation_meta_json", None)),
+        generation_meta=material.generation_meta,
     )
 
 

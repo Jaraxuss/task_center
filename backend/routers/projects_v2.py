@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -60,7 +58,7 @@ def create_project_v2(payload: ProjectV2Create, db: Session = Depends(get_db)) -
         name=payload.name,
         status=payload.status,
         area=area,
-        tags_json=json.dumps(payload.tags, ensure_ascii=False),
+        tags=payload.tags,
         start_at=payload.start_at,
         target_end_at=payload.target_end_at,
         actual_end_at=payload.actual_end_at,
@@ -82,8 +80,6 @@ def update_project_v2(project_id: int, payload: ProjectV2Update, db: Session = D
     project = get_or_404(db, ProjectV2, project_id, name="Project")
     updates = payload.model_dump(exclude_unset=True)
     clear_customer = bool(updates.pop("clear_customer", False))
-    if "tags" in updates:
-        project.tags_json = json.dumps(updates.pop("tags"), ensure_ascii=False)
     for field, value in updates.items():
         setattr(project, field, value)
     if clear_customer:

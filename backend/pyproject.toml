@@ -44,7 +44,6 @@ module = [
     "services.customers",
     "services.dashboard",
     "services.facts",
-    "services.json_utils",
     "services.projects_v2",
     "services.review_batches",
 ]

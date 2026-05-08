@@ -8,7 +8,6 @@ board endpoint.
 
 from __future__ import annotations
 
-import json
 from datetime import datetime
 
 from sqlalchemy import select
@@ -30,24 +29,9 @@ def get_board_preference(db: Session) -> BoardPreference:
 
 
 def serialize_board_preference(preference: BoardPreference) -> BoardPreferenceRead:
-    try:
-        task_order = [int(item) for item in json.loads(preference.task_order_json or "[]") if int(item) > 0]
-    except Exception:
-        task_order = []
-
-    try:
-        pinned_projects = [
-            str(item).strip() for item in json.loads(preference.pinned_projects_json or "[]") if str(item).strip()
-        ]
-    except Exception:
-        pinned_projects = []
-
-    try:
-        project_order = [
-            str(item).strip() for item in json.loads(preference.project_order_json or "[]") if str(item).strip()
-        ]
-    except Exception:
-        project_order = []
+    task_order = [int(item) for item in (preference.task_order or []) if int(item) > 0]
+    pinned_projects = [str(item).strip() for item in (preference.pinned_projects or []) if str(item).strip()]
+    project_order = [str(item).strip() for item in (preference.project_order or []) if str(item).strip()]
 
     normalized_projects: list[str] = []
     for project in pinned_projects:

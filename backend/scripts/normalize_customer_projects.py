@@ -21,7 +21,7 @@ CUSTOMER_TAG = "客户"
 
 
 def load_tags(task: Task) -> list[str]:
-    return json.loads(task.tags_json or "[]")
+    return list(task.tags or [])
 
 
 def main() -> None:

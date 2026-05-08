@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
@@ -73,7 +71,7 @@ def list_customer_materials(
     if not include_archived:
         stmt = stmt.where(CustomerMaterial.archived_at.is_(None))
     if value_type:
-        stmt = stmt.where(CustomerMaterial.value_types_json.like(f"%{value_type.strip()}%"))
+        stmt = stmt.where(CustomerMaterial.value_types.like(f"%{value_type.strip()}%"))
     if q:
         pattern = f"%{q.strip()}%"
         stmt = stmt.where(
@@ -106,8 +104,8 @@ def create_customer_material(payload: CustomerMaterialCreate, db: Session = Depe
         material_date=payload.material_date,
         source_type=payload.source_type,
         source=payload.source,
-        source_refs_json=json.dumps(payload.source_refs, ensure_ascii=False),
-        value_types_json=json.dumps(payload.value_types, ensure_ascii=False),
+        source_refs=payload.source_refs,
+        value_types=payload.value_types,
         status=payload.status,
         task_id=payload.task_id,
         customer_id=payload.customer_id,
@@ -117,7 +115,7 @@ def create_customer_material(payload: CustomerMaterialCreate, db: Session = Depe
         period_start=payload.period_start,
         period_end=payload.period_end,
         raw_facts_markdown=payload.raw_facts_markdown,
-        generation_meta_json=json.dumps(payload.generation_meta, ensure_ascii=False) if payload.generation_meta else None,
+        generation_meta=payload.generation_meta,
     )
     db.add(material)
     db.commit()
@@ -156,12 +154,9 @@ def update_customer_material(
     if clear_batch:
         material.review_batch_id = None
     if "source_refs" in updates:
-        material.source_refs_json = json.dumps(updates.pop("source_refs") or {}, ensure_ascii=False)
+        material.source_refs = updates.pop("source_refs") or {}
     if "value_types" in updates:
-        material.value_types_json = json.dumps(updates.pop("value_types") or [], ensure_ascii=False)
-    if "generation_meta" in updates:
-        meta = updates.pop("generation_meta")
-        material.generation_meta_json = json.dumps(meta, ensure_ascii=False) if meta else None
+        material.value_types = updates.pop("value_types") or []
     for field, value in updates.items():
         setattr(material, field, value)
     db.add(material)

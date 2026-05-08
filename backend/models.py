@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from enum import Enum
+from typing import Any
 
 from sqlalchemy import Boolean, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -24,6 +26,32 @@ class UTCDateTimeText(TypeDecorator):
         if isinstance(value, datetime):
             return to_utc_datetime(value, assume_tz=APP_TIMEZONE)
         return to_utc_datetime(parse_datetime_string(value), assume_tz=APP_TIMEZONE)
+
+
+class JSONText(TypeDecorator):
+    """Stores Python lists/dicts as JSON-encoded TEXT.
+
+    Replaces the historical ``Mapped[str]`` columns with a tolerant decoder:
+    malformed JSON or empty strings load as ``None`` rather than raising,
+    which matches the behaviour of the old ``services.json_utils`` helpers
+    and protects against any legacy-dirty rows.
+    """
+
+    impl = Text
+    cache_ok = True
+
+    def process_bind_param(self, value: Any, dialect: Any) -> str | None:
+        if value is None:
+            return None
+        return json.dumps(value, ensure_ascii=False)
+
+    def process_result_value(self, value: Any, dialect: Any) -> Any:
+        if value is None or value == "":
+            return None
+        try:
+            return json.loads(value)
+        except (json.JSONDecodeError, TypeError):
+            return None
 
 
 class TaskStatus(str, Enum):
@@ -167,11 +195,11 @@ class Customer(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     key: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True)
-    aliases_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    aliases: Mapped[list[str]] = mapped_column("aliases_json", JSONText, nullable=False, default=list)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default=CustomerStatus.ACTIVE.value, index=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     area: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    tags_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    tags: Mapped[list[str]] = mapped_column("tags_json", JSONText, nullable=False, default=list)
     created_at: Mapped[datetime] = mapped_column(UTCDateTimeText(), nullable=False, default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTimeText(), nullable=False, default=now_utc, onupdate=now_utc)
 
@@ -187,7 +215,7 @@ class Project(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default=ProjectStatus.ACTIVE.value, index=True)
     area: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    tags_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    tags: Mapped[list[str]] = mapped_column("tags_json", JSONText, nullable=False, default=list)
     start_at: Mapped[datetime | None] = mapped_column(UTCDateTimeText(), nullable=True)
     target_end_at: Mapped[datetime | None] = mapped_column(UTCDateTimeText(), nullable=True)
     actual_end_at: Mapped[datetime | None] = mapped_column(UTCDateTimeText(), nullable=True)
@@ -208,7 +236,7 @@ class Fact(Base):
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     raw_markdown: Mapped[str] = mapped_column(Text, nullable=False)
     source_type: Mapped[str] = mapped_column(String(32), nullable=False, default=FactSourceType.MANUAL_INPUT.value, index=True)
-    value_types_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    value_types: Mapped[list[str]] = mapped_column("value_types_json", JSONText, nullable=False, default=list)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default=FactStatus.DRAFT.value, index=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTimeText(), nullable=False, default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTimeText(), nullable=False, default=now_utc, onupdate=now_utc)
@@ -226,7 +254,7 @@ class Task(Base):
     area: Mapped[str | None] = mapped_column(String(128), nullable=True)
     customer_id: Mapped[int | None] = mapped_column(ForeignKey("customers.id", ondelete="SET NULL"), nullable=True, index=True)
     project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id", ondelete="SET NULL"), nullable=True, index=True)
-    tags_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    tags: Mapped[list[str]] = mapped_column("tags_json", JSONText, nullable=False, default=list)
     source: Mapped[str] = mapped_column(String(32), nullable=False, default="web")
     source_type: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTimeText(), nullable=False, default=now_utc)
@@ -252,8 +280,8 @@ class CustomerMaterial(Base):
     project: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     source_type: Mapped[str] = mapped_column(String(32), nullable=False, default="text", index=True)
     source: Mapped[str] = mapped_column(String(32), nullable=False, default="chat")
-    source_refs_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
-    value_types_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    source_refs: Mapped[dict[str, Any]] = mapped_column("source_refs_json", JSONText, nullable=False, default=dict)
+    value_types: Mapped[list[str]] = mapped_column("value_types_json", JSONText, nullable=False, default=list)
     task_id: Mapped[int | None] = mapped_column(ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True, index=True)
     archived_at: Mapped[datetime | None] = mapped_column(UTCDateTimeText(), nullable=True, index=True)
     # V2 fields
@@ -266,7 +294,7 @@ class CustomerMaterial(Base):
     period_start: Mapped[datetime | None] = mapped_column(UTCDateTimeText(), nullable=True)
     period_end: Mapped[datetime | None] = mapped_column(UTCDateTimeText(), nullable=True)
     raw_facts_markdown: Mapped[str | None] = mapped_column(Text, nullable=True)
-    generation_meta_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    generation_meta: Mapped[dict[str, Any] | None] = mapped_column("generation_meta_json", JSONText, nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default=CustomerMaterialStatus.PENDING.value, index=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTimeText(), nullable=False, default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTimeText(), nullable=False, default=now_utc, onupdate=now_utc)
@@ -300,13 +328,13 @@ class TaskRecurrence(Base):
     interval: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="Asia/Shanghai")
     time_of_day: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    days_of_week_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    days_of_week: Mapped[list[int]] = mapped_column("days_of_week_json", JSONText, nullable=False, default=list)
     day_of_month: Mapped[int | None] = mapped_column(Integer, nullable=True)
     start_at: Mapped[datetime | None] = mapped_column(UTCDateTimeText(), nullable=True)
     end_at: Mapped[datetime | None] = mapped_column(UTCDateTimeText(), nullable=True)
     next_run_at: Mapped[datetime | None] = mapped_column(UTCDateTimeText(), nullable=True, index=True)
     last_run_at: Mapped[datetime | None] = mapped_column(UTCDateTimeText(), nullable=True)
-    reminder_offsets_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    reminder_offsets_minutes: Mapped[list[int]] = mapped_column("reminder_offsets_json", JSONText, nullable=False, default=list)
     created_at: Mapped[datetime] = mapped_column(UTCDateTimeText(), nullable=False, default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTimeText(), nullable=False, default=now_utc, onupdate=now_utc)
 
@@ -319,7 +347,7 @@ class TaskEvent(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True)
     event_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
-    payload_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    payload: Mapped[dict[str, Any]] = mapped_column("payload_json", JSONText, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(UTCDateTimeText(), nullable=False, default=now_utc, index=True)
 
     task: Mapped[Task] = relationship("Task", back_populates="events")
@@ -329,9 +357,9 @@ class BoardPreference(Base):
     __tablename__ = "board_preferences"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    task_order_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
-    pinned_projects_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
-    project_order_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    task_order: Mapped[list[int]] = mapped_column("task_order_json", JSONText, nullable=False, default=list)
+    pinned_projects: Mapped[list[str]] = mapped_column("pinned_projects_json", JSONText, nullable=False, default=list)
+    project_order: Mapped[list[str]] = mapped_column("project_order_json", JSONText, nullable=False, default=list)
     created_at: Mapped[datetime] = mapped_column(UTCDateTimeText(), nullable=False, default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTimeText(), nullable=False, default=now_utc, onupdate=now_utc)
 
@@ -340,7 +368,7 @@ class KnowledgePreference(Base):
     __tablename__ = "knowledge_preferences"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    pinned_customer_ids_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
-    customer_order_ids_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    pinned_customer_ids: Mapped[list[int]] = mapped_column("pinned_customer_ids_json", JSONText, nullable=False, default=list)
+    customer_order_ids: Mapped[list[int]] = mapped_column("customer_order_ids_json", JSONText, nullable=False, default=list)
     created_at: Mapped[datetime] = mapped_column(UTCDateTimeText(), nullable=False, default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTimeText(), nullable=False, default=now_utc, onupdate=now_utc)

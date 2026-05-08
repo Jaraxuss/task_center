@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
@@ -33,7 +31,7 @@ def list_customers(
                 Customer.name.ilike(pattern),
                 Customer.key.ilike(pattern),
                 Customer.area.ilike(pattern),
-                Customer.aliases_json.like(pattern),
+                Customer.aliases.like(pattern),
             )
         )
     stmt = stmt.order_by(Customer.name.asc())
@@ -49,11 +47,11 @@ def create_customer(payload: CustomerCreate, db: Session = Depends(get_db)) -> C
     customer = Customer(
         name=payload.name,
         key=payload.key,
-        aliases_json=json.dumps(aliases, ensure_ascii=False),
+        aliases=aliases,
         status=payload.status,
         description=payload.description,
         area=area,
-        tags_json=json.dumps(payload.tags, ensure_ascii=False),
+        tags=payload.tags,
     )
     db.add(customer)
     db.commit()
@@ -71,10 +69,6 @@ def get_customer(customer_id: int, db: Session = Depends(get_db)) -> CustomerRea
 def update_customer(customer_id: int, payload: CustomerUpdate, db: Session = Depends(get_db)) -> CustomerRead:
     customer = get_or_404(db, Customer, customer_id)
     updates = payload.model_dump(exclude_unset=True)
-    if "aliases" in updates:
-        customer.aliases_json = json.dumps(updates.pop("aliases"), ensure_ascii=False)
-    if "tags" in updates:
-        customer.tags_json = json.dumps(updates.pop("tags"), ensure_ascii=False)
     for field, value in updates.items():
         setattr(customer, field, value)
     db.add(customer)

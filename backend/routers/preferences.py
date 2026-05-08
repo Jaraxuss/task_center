@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
@@ -28,11 +26,11 @@ def update_board_preferences(
     updates = payload.model_dump(exclude_unset=True)
 
     if "task_order" in updates and updates["task_order"] is not None:
-        preference.task_order_json = json.dumps(updates["task_order"], ensure_ascii=False)
+        preference.task_order = updates["task_order"]
     if "pinned_projects" in updates and updates["pinned_projects"] is not None:
-        preference.pinned_projects_json = json.dumps(updates["pinned_projects"], ensure_ascii=False)
+        preference.pinned_projects = updates["pinned_projects"]
     if "project_order" in updates and updates["project_order"] is not None:
-        preference.project_order_json = json.dumps(updates["project_order"], ensure_ascii=False)
+        preference.project_order = updates["project_order"]
 
     db.add(preference)
     db.commit()
@@ -53,9 +51,9 @@ def update_knowledge_preferences(
     updates = payload.model_dump(exclude_unset=True)
 
     if "pinned_customer_ids" in updates and updates["pinned_customer_ids"] is not None:
-        pref.pinned_customer_ids_json = json.dumps(updates["pinned_customer_ids"], ensure_ascii=False)
+        pref.pinned_customer_ids = updates["pinned_customer_ids"]
     if "customer_order_ids" in updates and updates["customer_order_ids"] is not None:
-        pref.customer_order_ids_json = json.dumps(updates["customer_order_ids"], ensure_ascii=False)
+        pref.customer_order_ids = updates["customer_order_ids"]
 
     db.add(pref)
     db.commit()

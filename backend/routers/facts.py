@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -81,7 +80,7 @@ def create_fact(payload: FactCreate, db: Session = Depends(get_db)) -> FactRead:
         title=payload.title,
         raw_markdown=payload.raw_markdown,
         source_type=payload.source_type,
-        value_types_json=json.dumps(payload.value_types, ensure_ascii=False),
+        value_types=payload.value_types,
         status=payload.status,
     )
     db.add(fact)
@@ -103,8 +102,6 @@ def update_fact(fact_id: int, payload: FactUpdate, db: Session = Depends(get_db)
     clear_customer = bool(updates.pop("clear_customer", False))
     clear_project = bool(updates.pop("clear_project", False))
     clear_task = bool(updates.pop("clear_task", False))
-    if "value_types" in updates:
-        fact.value_types_json = json.dumps(updates.pop("value_types"), ensure_ascii=False)
     for field, value in updates.items():
         setattr(fact, field, value)
     if clear_customer:
