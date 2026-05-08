@@ -80,6 +80,24 @@ def test_overview_unassigned_project(api_client: TestClient) -> None:
     assert unassigned["project_name"] == "未归项目"
 
 
+def test_create_fact_inherits_missing_customer_project_from_task(api_client: TestClient) -> None:
+    task_resp = api_client.post("/api/tasks", json={
+        "title": "task with fk",
+        "customer_id": 34,
+        "project_id": 59,
+        "source": "web",
+        "tags": [],
+    })
+    assert task_resp.status_code == 201, task_resp.text
+    task_id = task_resp.json()["id"]
+
+    fact = _create_fact(api_client, task_id=task_id, title="inherit fk")
+
+    assert fact["task_id"] == task_id
+    assert fact["customer_id"] == 34
+    assert fact["project_id"] == 59
+
+
 def test_overview_unassigned_customer(api_client: TestClient) -> None:
     _create_fact(api_client, customer_id=None, project_id=10, title="no customer fact")
 
