@@ -14,16 +14,16 @@
 5. **公共 helper**（提取 routers PATCH / 序列化里重复的模板代码——`json.dumps(..., ensure_ascii=False)` 包装、`*_json` 字段的 set 模板、`clear_*` boolean + FK 的处理对子，等等）
 6. **JSON TypeDecorator**（`*_json` TEXT 列在 ORM 层自动 `loads` / `dumps`，删掉 `services/json_utils.py` 大部分代码 + 各 router 里手工 `json.dumps` 模板）
 
-## 进度（2026-05-07 下午）
+## 进度（2026-05-07 下午 → Phase 1.B 收尾）
 
 | 子项 | 状态 | 落地 commit |
 |---|---|---|
 | lifespan | ✅ 完成 | `0a71c27`（和 Phase 0 一起提交） |
 | 拆 routers | ✅ 完成 | `c1a60a9` |
 | 提 services | ✅ 完成 | `c1a60a9` |
-| 拆 schemas | ⏳ 待做 | Phase 1.B |
-| 公共 helper | ⏳ 待做 | Phase 1.B |
-| JSON TypeDecorator | ⏳ 待做 | Phase 1.B |
+| 拆 schemas | ✅ 完成 | `452cd93`（Phase 1.B §8.1） |
+| 公共 helper | ✅ 完成 | `c7228fb`（Phase 1.B §8.2） |
+| JSON TypeDecorator | ✅ 完成 | `f09e495`（Phase 1.B §8.3） |
 
 本文档原版（commit `123f9c8` 落档时）把后三项错误归类成「Phase 2 候选」。本次校准把它们重新归回 Phase 1，命名为 **Phase 1.B 剩余工作**（见 §8）。真正的 Phase 2 候选另列 §9。
 
@@ -491,6 +491,57 @@ class JSONText(TypeDecorator):
 
 ---
 
+## 8.B Phase 1.B 已做（commits `452cd93`, `c7228fb`, `f09e495`）
+
+按 §8 的三个子项依次执行，每个子项独立提交、独立验证。
+
+### 8.B.1 拆 schemas（commit `452cd93`，§8.1）
+
+- `backend/schemas.py`（953 行单文件）→ `backend/schemas/` 包，按领域拆成 9 个子文件，和 `routers/` + `services/` 三件套对齐：
+  - `_common.py` — 校验 helper + Literal 类型别名
+  - `tasks.py` / `dashboard.py` / `customer_materials.py` / `customers.py` / `projects_v2.py` / `facts.py` / `review_batches.py` / `knowledge.py`
+  - `__init__.py` 集中 re-export 所有公开符号，**所有调用方**（routers / services / scripts / tests）都不用改 `from schemas import X`。
+- 验证：pytest 70/70 不变；ruff 干净；mypy 错误总数和拆分前完全一致（102，零回归）。
+- **没做的**：把 schemas 子包加进 mypy 严格岛。每个子文件确实都是纯 Pydantic、无 `Any` 漏洞，进岛理论上无成本，但 `dict`（无类型参数）那行警告涉及到 `TaskEventRead.payload`，先记在 §9 留作未来低成本收益点。
+
+### 8.B.2 公共 helper（commit `c7228fb`，§8.2）
+
+- 新增 `backend/services/common.py`（PEP 695 泛型语法，Python 3.12+），提供 `get_or_404[T: Base](db, model, entity_id, *, name=None)`。
+- 替换 routers 里 11 处 `db.get(...) + raise HTTPException(404)` 模板（customers / facts / projects_v2 / review_batches / customer_materials）。
+- 加进 mypy 严格岛 + 3 个单元测试（`tests/test_services_common.py`）。
+- **故意没做的两件事**：
+  - 没做 `apply_patch` / `clear_<fk>` PATCH 抽象：FK-clear 模板只在 2 个 router 里出现，不够覆盖一个抽象的成本。
+  - 没做 `dump_json` 包装：§8.3 的 JSONText 直接让所有 `json.dumps` 消失，包装会立即报废。
+- 验证：pytest 73/73 pass；ruff clean；mypy 102（不变）。
+
+### 8.B.3 JSON TypeDecorator（commit `f09e495`，§8.3）
+
+- `models.py` 新增 `JSONText` `TypeDecorator`（`impl=Text`，容错 decoder：bad JSON → `None`）。
+- 16 个 `Mapped[str]`（TEXT JSON）列**全部**迁到 `Mapped[list[str]] / Mapped[list[int]] / Mapped[dict[str, Any]]`：
+  - 用 `mapped_column("aliases_json", JSONText, ...)` 第一个位置参数显式保留 SQL 列名，**只改 Python 属性名**（`customer.aliases` / `task.tags` / `recurrence.days_of_week` / `preference.task_order` ……）。SQL schema **不动**——alembic baseline 测试自动验证了这一点。
+- 顺手把两个属性名改得更名副其实：
+  - `TaskRecurrence.reminder_offsets_json` → `reminder_offsets_minutes`（schema 字段已经叫这个名字，原属性名是历史遗物）。
+  - `TaskEvent.payload_json` → `payload`。
+- 删除 `services/json_utils.py`：tolerant decoding 现在收敛到 `JSONText.process_result_value` 一个地方。
+- routers / services 里 30+ 处 `json.dumps(..., ensure_ascii=False)` / `json.loads(... or "[]")` **全部消失**，PATCH endpoint 模板从「拆出 list 字段单独 dump」一条龙简化成 `for field, value in updates.items(): setattr(obj, field, value)`。
+- 跨产线生产 DB 验证：用 `task_center.db` 真实库直接读 `Customer.aliases` / `Task.tags` / `BoardPreference.task_order`，全部得到正确的 `list` 类型；旧的 TEXT 内容透明解析。
+- 验证：pytest 73/73 pass；`grep 'json.dumps\|json.loads' backend/routers backend/services` 零命中（§8.3 退出条件达成）；ruff clean；mypy 102（不变）；alembic baseline 测试 pass（TypeDecorator `impl=Text` 在 SQLite inspector 里仍是 TEXT，零 schema drift）。
+
+### 8.B.4 累计退出条件回顾
+
+| §8 条件 | 实测 | 状态 |
+|---|---|---|
+| pytest 全过 | 73/73（多了 3 个 `get_or_404` 单测） | ✅ |
+| ruff clean | 全过 | ✅ |
+| `grep 'json.dumps' routers/` ≈ 0 | 0 命中 | ✅ |
+| `services/json_utils.py` 缩水 / 删除 | 删除 | ✅ |
+| 「Phase 1.B 已做」补一节 | 即本节 §8.B | ✅ |
+| schemas 子包进 mypy 严格岛 | 推迟到 §9（无阻塞性需求） | ⚠️ |
+
+mypy 错误总数从 §8 开工到 §8.3 收工**始终是 102**，不增不减——零回归，唯一一次扰动是 §8.2 加 `services.common` 进岛时，3 个新测试函数在岛外触发 `no-untyped-def`，立刻补上类型标注后回到 102。
+
+---
+
 ## 9. Phase 2 候选（未来工作，与 Phase 1 收尾无关）
 
 Phase 1.B 完成之后才考虑这些。
@@ -531,10 +582,11 @@ Alembic baseline 已经覆盖了当前 schema，`ensure_schema_compatibility()` 
 | `backend/services/schema_compat.py` | 144 | 遗留手写 ALTER 链（见 §9.4） |
 | `backend/services/customer_materials.py` | 112 | 材料序列化 + 引用校验 |
 | `backend/services/board.py` | 81 | 板偏好 + 自定义排序元数据 |
-| `backend/services/json_utils.py` | 41 | 容错 JSON 解析（Phase 1.B §8.3 落地后大幅缩水或删除） |
-| `backend/schemas.py` | ~900 | 单文件，Phase 1.B §8.1 待拆 |
-| `backend/pyproject.toml` | 51 | ruff + mypy 严格岛名单 |
+| `backend/services/json_utils.py` | — | 已删除（Phase 1.B §8.3） |
+| `backend/services/common.py` | 28 | `get_or_404` 等公共 helper（Phase 1.B §8.2） |
+| `backend/schemas/` | 9 子文件 | 按领域拆分（Phase 1.B §8.1） |
+| `backend/pyproject.toml` | 50 | ruff + mypy 严格岛名单（已加 `services.common`） |
 
 ---
 
-**—— Phase 0 + Phase 1.A 的目标已达成：`main.py` 不再是"所有改动的战场"，新功能（`4dabef7` 的 `customer_id` 过滤就是第一个例子）天然落在正确的 router + service 位置。Phase 1.B 三项（schemas 拆分 / 公共 helper / JSON TypeDecorator）开始执行后，会在本文件追加 §3.B 实录。**
+**—— Phase 0 + Phase 1.A + Phase 1.B 全部目标已达成。`main.py` 不再是"所有改动的战场"；schemas 单文件、`json.dumps` 模板、`db.get(...) + raise HTTPException(404)` 三类历史模板已在 routers / services 里彻底消失。新功能可以直接在正确的 router + service + schema 子文件三件套里落地。Phase 2 候选见 §9。**
