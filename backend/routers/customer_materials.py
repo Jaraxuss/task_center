@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
@@ -23,6 +23,7 @@ from schemas import (
     CustomerMaterialUpdate,
     normalize_project_name,
 )
+from services.common import get_or_404
 from services.customer_materials import (
     get_customer_material_or_404,
     serialize_customer_material,
@@ -197,9 +198,7 @@ def add_material_fact(
 ) -> CustomerMaterialFactRead:
     """Add a fact to a customer material."""
     material = get_customer_material_or_404(db, material_id)
-    fact = db.get(Fact, payload.fact_id)
-    if not fact:
-        raise HTTPException(status_code=404, detail="Fact not found")
+    get_or_404(db, Fact, payload.fact_id)
     mf = CustomerMaterialFact(
         material_id=material.id,
         fact_id=payload.fact_id,

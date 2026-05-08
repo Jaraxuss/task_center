@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -17,6 +17,7 @@ from schemas import (
     ProjectV2Update,
     normalize_project_name,
 )
+from services.common import get_or_404
 from services.projects_v2 import serialize_project_v2
 
 router = APIRouter(prefix="/api/projects-v2", tags=["projects-v2"])
@@ -72,17 +73,13 @@ def create_project_v2(payload: ProjectV2Create, db: Session = Depends(get_db)) -
 
 @router.get("/{project_id}", response_model=ProjectV2Read)
 def get_project_v2(project_id: int, db: Session = Depends(get_db)) -> ProjectV2Read:
-    project = db.get(ProjectV2, project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+    project = get_or_404(db, ProjectV2, project_id, name="Project")
     return serialize_project_v2(project)
 
 
 @router.patch("/{project_id}", response_model=ProjectV2Read)
 def update_project_v2(project_id: int, payload: ProjectV2Update, db: Session = Depends(get_db)) -> ProjectV2Read:
-    project = db.get(ProjectV2, project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+    project = get_or_404(db, ProjectV2, project_id, name="Project")
     updates = payload.model_dump(exclude_unset=True)
     clear_customer = bool(updates.pop("clear_customer", False))
     if "tags" in updates:

@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from db import get_db
 from models import Fact, Task
 from schemas import FactCreate, FactRead, FactUpdate
+from services.common import get_or_404
 from services.facts import serialize_fact
 
 router = APIRouter(prefix="/api/facts", tags=["facts"])
@@ -68,9 +69,7 @@ def create_fact(payload: FactCreate, db: Session = Depends(get_db)) -> FactRead:
     customer_id = payload.customer_id
     project_id = payload.project_id
     if payload.task_id is not None and (customer_id is None or project_id is None):
-        task = db.get(Task, payload.task_id)
-        if task is None:
-            raise HTTPException(status_code=404, detail="Task not found")
+        task = get_or_404(db, Task, payload.task_id)
         customer_id = customer_id if customer_id is not None else task.customer_id
         project_id = project_id if project_id is not None else task.project_id
 
@@ -93,17 +92,13 @@ def create_fact(payload: FactCreate, db: Session = Depends(get_db)) -> FactRead:
 
 @router.get("/{fact_id}", response_model=FactRead)
 def get_fact(fact_id: int, db: Session = Depends(get_db)) -> FactRead:
-    fact = db.get(Fact, fact_id)
-    if not fact:
-        raise HTTPException(status_code=404, detail="Fact not found")
+    fact = get_or_404(db, Fact, fact_id)
     return serialize_fact(fact)
 
 
 @router.patch("/{fact_id}", response_model=FactRead)
 def update_fact(fact_id: int, payload: FactUpdate, db: Session = Depends(get_db)) -> FactRead:
-    fact = db.get(Fact, fact_id)
-    if not fact:
-        raise HTTPException(status_code=404, detail="Fact not found")
+    fact = get_or_404(db, Fact, fact_id)
     updates = payload.model_dump(exclude_unset=True)
     clear_customer = bool(updates.pop("clear_customer", False))
     clear_project = bool(updates.pop("clear_project", False))
@@ -126,9 +121,7 @@ def update_fact(fact_id: int, payload: FactUpdate, db: Session = Depends(get_db)
 
 @router.delete("/{fact_id}", status_code=204)
 def delete_fact(fact_id: int, db: Session = Depends(get_db)) -> Response:
-    fact = db.get(Fact, fact_id)
-    if not fact:
-        raise HTTPException(status_code=404, detail="Fact not found")
+    fact = get_or_404(db, Fact, fact_id)
     db.delete(fact)
     db.commit()
     return Response(status_code=204)

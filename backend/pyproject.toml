@@ -39,6 +39,7 @@ module = [
     "timeutils",
     "config",
     "services.board",
+    "services.common",
     "services.customer_materials",
     "services.customers",
     "services.dashboard",

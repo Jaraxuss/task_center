@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -14,6 +14,7 @@ from schemas import (
     ReviewBatchRead,
     ReviewBatchUpdate,
 )
+from services.common import get_or_404
 from services.customer_materials import serialize_customer_material
 from services.review_batches import serialize_review_batch
 
@@ -55,17 +56,13 @@ def create_review_batch(payload: ReviewBatchCreate, db: Session = Depends(get_db
 
 @router.get("/{batch_id}", response_model=ReviewBatchRead)
 def get_review_batch(batch_id: int, db: Session = Depends(get_db)) -> ReviewBatchRead:
-    batch = db.get(ReviewBatch, batch_id)
-    if not batch:
-        raise HTTPException(status_code=404, detail="Review batch not found")
+    batch = get_or_404(db, ReviewBatch, batch_id, name="Review batch")
     return serialize_review_batch(batch)
 
 
 @router.patch("/{batch_id}", response_model=ReviewBatchRead)
 def update_review_batch(batch_id: int, payload: ReviewBatchUpdate, db: Session = Depends(get_db)) -> ReviewBatchRead:
-    batch = db.get(ReviewBatch, batch_id)
-    if not batch:
-        raise HTTPException(status_code=404, detail="Review batch not found")
+    batch = get_or_404(db, ReviewBatch, batch_id, name="Review batch")
     updates = payload.model_dump(exclude_unset=True)
     for field, value in updates.items():
         setattr(batch, field, value)
@@ -77,9 +74,7 @@ def update_review_batch(batch_id: int, payload: ReviewBatchUpdate, db: Session =
 
 @router.get("/{batch_id}/customer-materials", response_model=list[CustomerMaterialRead])
 def list_batch_materials(batch_id: int, db: Session = Depends(get_db)) -> list[CustomerMaterialRead]:
-    batch = db.get(ReviewBatch, batch_id)
-    if not batch:
-        raise HTTPException(status_code=404, detail="Review batch not found")
+    get_or_404(db, ReviewBatch, batch_id, name="Review batch")
     stmt = (
         select(CustomerMaterial)
         .where(CustomerMaterial.review_batch_id == batch_id)

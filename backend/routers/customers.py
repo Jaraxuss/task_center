@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import json
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from db import get_db
 from models import Customer
 from schemas import CustomerCreate, CustomerRead, CustomerUpdate
+from services.common import get_or_404
 from services.customers import serialize_customer
 
 router = APIRouter(prefix="/api/customers", tags=["customers"])
@@ -62,17 +63,13 @@ def create_customer(payload: CustomerCreate, db: Session = Depends(get_db)) -> C
 
 @router.get("/{customer_id}", response_model=CustomerRead)
 def get_customer(customer_id: int, db: Session = Depends(get_db)) -> CustomerRead:
-    customer = db.get(Customer, customer_id)
-    if not customer:
-        raise HTTPException(status_code=404, detail="Customer not found")
+    customer = get_or_404(db, Customer, customer_id)
     return serialize_customer(customer)
 
 
 @router.patch("/{customer_id}", response_model=CustomerRead)
 def update_customer(customer_id: int, payload: CustomerUpdate, db: Session = Depends(get_db)) -> CustomerRead:
-    customer = db.get(Customer, customer_id)
-    if not customer:
-        raise HTTPException(status_code=404, detail="Customer not found")
+    customer = get_or_404(db, Customer, customer_id)
     updates = payload.model_dump(exclude_unset=True)
     if "aliases" in updates:
         customer.aliases_json = json.dumps(updates.pop("aliases"), ensure_ascii=False)
