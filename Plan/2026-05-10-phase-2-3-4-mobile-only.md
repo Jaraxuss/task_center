@@ -14,7 +14,7 @@
 | 3.2 components/ 原子组件抽取 | ✅ 完成 | `de15f28` (主仓 bump) + `061bd04` (子仓) | 2026-05-10 |
 | 3.3 sheets/ 8 个 sheet 组件抽取 | ✅ 完成 | `eac7998` (主仓 bump) + `ae14054` (子仓) | 2026-05-10 |
 | 3.4–3.8 views/ 13 个视图子组件抽取 | ✅ 完成 | `4adee86` (主仓) + `8bb1ebd` (子仓) | 2026-05-10 |
-| 3.9 App.tsx shell cleanup | ⏳ 待开始 | | |
+| 3.9 App.tsx shell cleanup (1224→683) | ✅ 完成 | `73bf58d` (主仓) + `1dd2147` (子仓) | 2026-05-10 |
 | 4.A Task.project 下线 | ⏳ 待开始 | | |
 | 4.B CustomerMaterial legacy | ⏳ 待开始 | | |
 | 4.C ProjectV2 命名统一 | ⏳ 待开始 | | |
