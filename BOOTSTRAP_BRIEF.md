@@ -1,4 +1,6 @@
-# 轻量任务中心 Bootstrp Brief
+# 轻量任务中心 Bootstrap Brief
+
+> **历史文档**：这是项目初期的 MVP 启动文档。其中 `frontend/` 已归档至 `archive/frontend/`，不再维护。当前活跃前端为 `mobile_frontend/`。
 
 ## 目标
 构建一个本地轻量任务中心（MVP），满足：
@@ -86,7 +88,7 @@
 - GET /api/dashboard/board
 - GET /api/dashboard/history
 
-## 前端要求
+## 前端要求（已归档，当前前端为 `mobile_frontend/`）
 - React 实现，不必追求炫，先稳定可用
 - 页面清晰、操作路径短
 - 优先把“今日视图”和“任务详情操作”打通
@@ -106,7 +108,7 @@
 
 ## 协作规则
 - PM 主要写 docs/ 里的产品与接口文档
-- FE 主要写 frontend/
+- FE 主要写 mobile_frontend/（原 frontend/ 已归档至 archive/frontend/）
 - BE 主要写 backend/
 - 尽量避免多人同时改同一文件
 - README 可以最后补，若需改共享文档，优先增量而非覆盖

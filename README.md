@@ -4,24 +4,22 @@
 
 ## 现在的工程结构
 
-当前项目不是单体一坨，而是 **3 个主要代码单元**：
+当前项目由 **2 个活跃代码单元** 组成（桌面端已归档）：
 
 1. **`backend/`**
    - FastAPI + SQLite
    - 负责任务、提醒、事件日志、周期任务、dashboard 聚合接口
    - 是整个系统的单一数据事实来源
 
-2. **`frontend/`**
-   - React + TypeScript + Vite
-   - 桌面 Web 前端
-   - 负责今日 / 计划 / 看板 / 历史等主要视图，以及任务详情操作
-
-3. **`mobile_frontend/`**
+2. **`mobile_frontend/`**
    - React + TypeScript + Vite
    - 独立移动端前端
    - **它是一个独立 git 仓库**，不和主仓历史混在一起
 
-> 说明：`backend/` 与 `frontend/` 位于主仓；`mobile_frontend/` 是嵌套的独立仓。
+3. **`archive/frontend/`**（已归档，不再维护）
+   - 原桌面 Web 前端，详见 `archive/README.md`
+
+> 说明：`backend/` 位于主仓；`mobile_frontend/` 是嵌套的独立子仓。
 
 ## 先看哪里
 
@@ -30,7 +28,7 @@
 1. `docs/PROJECT_OVERVIEW.md` —— 当前项目现状、三块代码职责、修改落点、联动关系
 2. `docs/API_CONTRACT.md` —— 接口与字段约定
 3. `docs/TIMEZONE_DESIGN.md` —— 当前时间语义，避免改时间逻辑时踩雷
-4. `backend/README.md` / `frontend/README.md` / `mobile_frontend/README.md` —— 各自启动方式
+4. `backend/README.md` / `mobile_frontend/README.md` —— 各自启动方式
 
 ## 当前关键约定
 
@@ -51,10 +49,12 @@
 - `mobile_frontend/` 改动要在子仓里单独提交
 - 不要把它当作主仓普通子目录一起 commit
 
+### 4. 桌面端已归档
+- `archive/frontend/` 保留历史但不再维护，不在 CI 上构建
+
 ## 开发时最常见的修改落点
 
 - 改任务数据模型 / API / 周期任务：`backend/`
-- 改桌面端视图与交互：`frontend/`
 - 改手机端视图与交互：`mobile_frontend/`
 - 改跨端公共语义（例如时间规则、字段口径、状态约定）：优先先改后端和 docs，再补前端适配
 

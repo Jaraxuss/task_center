@@ -26,7 +26,7 @@
 
 ## 2. 当前工程怎么拆
 
-当前项目由 **3 个主要代码单元** 组成：
+当前项目由 **2 个活跃代码单元** 组成（桌面端已归档）：
 
 ### A. `backend/`
 - 技术栈：FastAPI + SQLAlchemy + SQLite
@@ -39,16 +39,7 @@
   - 历史事件记录
   - 数据初始化与兼容迁移
 
-### B. `frontend/`
-- 技术栈：React + TypeScript + Vite
-- 角色：桌面 Web 前端
-- 负责：
-  - Today / Plan / Board / History 视图
-  - 任务详情弹层
-  - 时间输入输出与展示适配
-  - API adapter 与前端类型
-
-### C. `mobile_frontend/`
+### B. `mobile_frontend/`
 - 技术栈：React + TypeScript + Vite
 - 角色：独立移动端前端
 - 特别注意：**它是独立 git 仓库**
@@ -57,15 +48,19 @@
   - 移动端详情层与基础任务动作
   - 针对触屏与窄屏重新组织信息架构
 
+### C. `archive/frontend/`（已归档）
+- 原桌面 Web 前端（React + TypeScript + Vite），不再维护。
+- 最后功能提交：`7986760 fix align web task dates with Asia/Shanghai semantics`。
+- 详见 `archive/README.md`。
+
 ### 仓库边界说明
 - **主仓**：`task_center/`
-  - 包含 `backend/`、`frontend/`、`docs/`
+  - 包含 `backend/`、`docs/`、`archive/`
 - **子仓**：`task_center/mobile_frontend/`
   - 独立提交、独立历史
 
 因此改代码时要先判断：
 - 这是后端逻辑？
-- 这是桌面前端？
 - 这是移动端？
 
 不要把 `mobile_frontend/` 当成主仓普通目录一起 commit。
@@ -127,20 +122,13 @@
 - `backend/main.py`
 - `backend/models.py`
 
-### 场景 3：改桌面端页面展示或详情交互
-先看：
-- `frontend/src/App.tsx`
-- `frontend/src/components.tsx`
-- `frontend/src/api.ts`
-- `frontend/src/utils.ts`
-
-### 场景 4：改手机端页面展示或详情交互
+### 场景 3：改手机端页面展示或详情交互
 先看：
 - `mobile_frontend/src/App.tsx`
 - `mobile_frontend/src/api.ts`
 - `mobile_frontend/src/utils.ts`
 
-### 场景 5：改“跨端共识”
+### 场景 4：改“跨端共识”
 比如：
 - 状态含义
 - 时间口径
@@ -150,7 +138,7 @@
 建议顺序：
 1. 先改 docs
 2. 再改 backend
-3. 最后补 frontend / mobile_frontend 适配
+3. 最后补 mobile_frontend 适配
 
 ---
 
@@ -170,16 +158,6 @@
   - 周期规则核心计算
 - `backend/timeutils.py`
   - 当前时间语义辅助函数集中处
-
-### 桌面端
-- `frontend/src/App.tsx`
-  - 页面层、视图切换、局部汇总逻辑
-- `frontend/src/components.tsx`
-  - 大量实际 UI 与详情交互
-- `frontend/src/api.ts`
-  - 前端对后端的 adapter
-- `frontend/src/utils.ts`
-  - 时间、状态、分组辅助函数
 
 ### 移动端
 - `mobile_frontend/src/App.tsx`
@@ -220,9 +198,6 @@
 ### 主仓后端
 看：`backend/README.md`
 
-### 主仓桌面端
-看：`frontend/README.md`
-
 ### 移动端
 看：`mobile_frontend/README.md`
 
@@ -230,8 +205,7 @@
 改完代码后，通常最小验证是：
 
 1. 后端：至少确认 Python 代码可编译/启动
-2. 桌面端：`npm run build`
-3. 移动端：`npm run build`
+2. 移动端：`npm run build`
 
 如果改的是时间语义或 dashboard 逻辑，最好顺带人工检查：
 - 今日
