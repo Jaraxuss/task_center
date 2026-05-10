@@ -15,7 +15,7 @@ from fastapi import HTTPException
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
 
-from models import EventType, Reminder, ReminderStatus, Task, TaskEvent, TaskRecurrence, TaskStatus
+from models import EventType, Project, Reminder, ReminderStatus, Task, TaskEvent, TaskRecurrence, TaskStatus
 from recurrence import compute_next_recurrence, normalize_days_of_week, normalize_time_of_day
 from schemas import (
     ReminderRead,
@@ -61,7 +61,9 @@ def query_tasks(
         stmt = stmt.where(Task.status == status)
     if query:
         like = f"%{query}%"
-        stmt = stmt.where(or_(Task.title.ilike(like), Task.description.ilike(like), Task.project.ilike(like)))
+        stmt = stmt.outerjoin(Project, Task.project_id == Project.id).where(
+            or_(Task.title.ilike(like), Task.description.ilike(like), Task.project.ilike(like), Project.name.ilike(like))
+        )
     if source_type:
         stmt = stmt.where(Task.source_type == source_type)
     if created_from is not None:

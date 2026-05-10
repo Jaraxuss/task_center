@@ -13,7 +13,7 @@ from datetime import date, datetime, timedelta
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
-from models import Task, TaskStatus
+from models import Project, Task, TaskStatus
 from schemas import (
     BoardSummary,
     HistorySummary,
@@ -158,12 +158,35 @@ def build_history_summary(
 
 
 def build_project_summaries(db: Session) -> list[ProjectSummary]:
-    tasks = list(db.scalars(select(Task).where(Task.project.is_not(None))).unique())
+    # Primary: group by project_id → Project.name
+    tasks_with_pid = list(
+        db.scalars(
+            select(Task).where(Task.project_id.is_not(None))
+        ).unique()
+    )
+    project_ids = {t.project_id for t in tasks_with_pid if t.project_id is not None}
+    project_map: dict[int, Project] = {}
+    if project_ids:
+        for proj in db.scalars(select(Project).where(Project.id.in_(project_ids))):
+            project_map[proj.id] = proj
+
     grouped: dict[str, list[Task]] = {}
-    for task in tasks:
-        if not task.project:
+    for task in tasks_with_pid:
+        proj = project_map.get(task.project_id)  # type: ignore[arg-type]
+        name = proj.name if proj else task.project
+        if not name:
             continue
-        grouped.setdefault(task.project, []).append(task)
+        grouped.setdefault(name, []).append(task)
+
+    # Fallback: tasks with project string but no project_id (not yet backfilled)
+    legacy_tasks = list(
+        db.scalars(
+            select(Task).where(Task.project.is_not(None), Task.project_id.is_(None))
+        ).unique()
+    )
+    for task in legacy_tasks:
+        if task.project:
+            grouped.setdefault(task.project, []).append(task)
 
     open_statuses = {TaskStatus.TODO.value, TaskStatus.DOING.value, TaskStatus.DEFERRED.value}
     _, pinned_projects, project_order = get_board_sort_metadata(db)
