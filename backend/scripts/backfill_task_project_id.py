@@ -1,5 +1,7 @@
 """Backfill tasks.project_id from tasks.project string.
 
+MUST be run BEFORE the alembic migration that drops tasks.project.
+
 For every task where `project IS NOT NULL AND project_id IS NULL`:
   1. Look for a matching Project row by (customer_id, name=project).
   2. If found → set task.project_id to that project's id.
@@ -20,7 +22,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from db import SessionLocal
@@ -56,36 +58,45 @@ def resolve_project_type(area: str | None) -> str:
 
 def backfill(db: Session, *, apply: bool = False) -> dict:
     """Run the backfill. Returns a report dict."""
-    stmt = select(Task).where(Task.project.is_not(None), Task.project_id.is_(None))
-    tasks = list(db.scalars(stmt).unique())
+    # Use raw SQL to read the legacy 'project' column since it has been
+    # removed from the ORM (but still exists in the DB until migration runs).
+    rows = db.execute(
+        text("SELECT id, project, customer_id, area FROM tasks "
+             "WHERE project IS NOT NULL AND project_id IS NULL")
+    ).fetchall()
 
     matched = 0
     created = 0
     skipped_empty = 0
     details: list[dict] = []
 
-    for task in tasks:
-        project_name = (task.project or "").strip()
+    for row in rows:
+        task_id, raw_project, customer_id, task_area = row
+        project_name = (raw_project or "").strip()
         if not project_name:
             skipped_empty += 1
             continue
+        task = db.get(Task, task_id)
+        if task is None:
+            skipped_empty += 1
+            continue
 
-        project = find_project(db, task.customer_id, project_name)
+        project = find_project(db, customer_id, project_name)
         action: str
 
         if project is None:
             # Also try matching without customer constraint (for tasks with
             # customer_id=NULL whose project name matches an existing Project).
-            if task.customer_id is not None:
+            if customer_id is not None:
                 project = find_project(db, None, project_name)
 
         if project is not None:
             action = "matched"
             matched += 1
         else:
-            area = resolve_area(db, task.customer_id) or task.area
+            area = resolve_area(db, customer_id) or task_area
             project = Project(
-                customer_id=task.customer_id,
+                customer_id=customer_id,
                 name=project_name,
                 project_type=resolve_project_type(area),
                 status=ProjectStatus.ACTIVE.value,
@@ -98,10 +109,10 @@ def backfill(db: Session, *, apply: bool = False) -> dict:
             created += 1
 
         details.append({
-            "task_id": task.id,
-            "task_title": task.title,
+            "task_id": task_id,
+            "task_title": task.title if task else "(unknown)",
             "project_name": project_name,
-            "customer_id": task.customer_id,
+            "customer_id": customer_id,
             "project_id": project.id if apply else "(pending)",
             "action": action,
         })

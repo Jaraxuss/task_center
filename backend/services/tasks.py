@@ -62,7 +62,7 @@ def query_tasks(
     if query:
         like = f"%{query}%"
         stmt = stmt.outerjoin(Project, Task.project_id == Project.id).where(
-            or_(Task.title.ilike(like), Task.description.ilike(like), Task.project.ilike(like), Project.name.ilike(like))
+            or_(Task.title.ilike(like), Task.description.ilike(like), Project.name.ilike(like))
         )
     if source_type:
         stmt = stmt.where(Task.source_type == source_type)
@@ -120,7 +120,7 @@ def serialize_task(task: Task) -> TaskRead:
         description=task.description,
         due_at=task.due_at,
         status=task.status,
-        project=task.project,
+        project=task.project_rel.name if task.project_rel else None,
         area=getattr(task, "area", None),
         customer_id=getattr(task, "customer_id", None),
         project_id=getattr(task, "project_id", None),

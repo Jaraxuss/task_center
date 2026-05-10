@@ -173,20 +173,10 @@ def build_project_summaries(db: Session) -> list[ProjectSummary]:
     grouped: dict[str, list[Task]] = {}
     for task in tasks_with_pid:
         proj = project_map.get(task.project_id)  # type: ignore[arg-type]
-        name = proj.name if proj else task.project
+        name = proj.name if proj else None
         if not name:
             continue
         grouped.setdefault(name, []).append(task)
-
-    # Fallback: tasks with project string but no project_id (not yet backfilled)
-    legacy_tasks = list(
-        db.scalars(
-            select(Task).where(Task.project.is_not(None), Task.project_id.is_(None))
-        ).unique()
-    )
-    for task in legacy_tasks:
-        if task.project:
-            grouped.setdefault(task.project, []).append(task)
 
     open_statuses = {TaskStatus.TODO.value, TaskStatus.DOING.value, TaskStatus.DEFERRED.value}
     _, pinned_projects, project_order = get_board_sort_metadata(db)

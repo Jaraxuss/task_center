@@ -88,7 +88,6 @@ def create_task(payload: TaskCreate, db: Session = Depends(get_db)) -> TaskDetai
         description=payload.description,
         due_at=payload.due_at,
         status=TaskStatus.TODO.value,
-        project=payload.project,
         area=getattr(payload, "area", None),
         customer_id=getattr(payload, "customer_id", None),
         project_id=getattr(payload, "project_id", None),
@@ -128,6 +127,7 @@ def update_task(task_id: int, payload: TaskUpdate, db: Session = Depends(get_db)
     clear_recurrence_requested = bool(updates.pop("clear_recurrence", False))
     updates.pop("clear_customer", None)
     updates.pop("clear_project_v2", None)
+    updates.pop("project", None)
     for field, value in updates.items():
         setattr(task, field, value)
 

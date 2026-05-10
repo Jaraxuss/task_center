@@ -250,7 +250,6 @@ class Task(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     due_at: Mapped[datetime | None] = mapped_column(UTCDateTimeText(), nullable=True, index=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default=TaskStatus.TODO.value, index=True)
-    project: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     area: Mapped[str | None] = mapped_column(String(128), nullable=True)
     customer_id: Mapped[int | None] = mapped_column(ForeignKey("customers.id", ondelete="SET NULL"), nullable=True, index=True)
     project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id", ondelete="SET NULL"), nullable=True, index=True)
@@ -269,6 +268,7 @@ class Task(Base):
     reminders: Mapped[list[Reminder]] = relationship("Reminder", back_populates="task", cascade="all, delete-orphan")
     events: Mapped[list[TaskEvent]] = relationship("TaskEvent", back_populates="task", cascade="all, delete-orphan")
     recurrence: Mapped[TaskRecurrence | None] = relationship("TaskRecurrence", back_populates="task", cascade="all, delete-orphan", uselist=False)
+    project_rel: Mapped[Project | None] = relationship("Project", foreign_keys=[project_id], lazy="joined")
     customer_materials: Mapped[list[CustomerMaterial]] = relationship("CustomerMaterial", back_populates="task")
 
 
