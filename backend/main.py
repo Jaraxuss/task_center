@@ -90,7 +90,6 @@ app.include_router(review_batches_router.router)
 # Re-exports for backwards compatibility with seed scripts and ad-hoc tools
 # that historically imported these names from ``main``. New callers should
 # import from ``services.*`` / ``routers.*`` directly.
-rename_project = projects_router.rename_project
 update_task = tasks_router.update_task
 
 __all__ = [
@@ -100,7 +99,6 @@ __all__ = [
     "init_db",
     "lifespan",
     "normalize_datetime_storage",
-    "rename_project",
     "settings",
     "update_task",
 ]
