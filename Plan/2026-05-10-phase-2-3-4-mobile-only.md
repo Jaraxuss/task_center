@@ -2,6 +2,19 @@
 
 桌面 `frontend/` 整体归档到 `archive/frontend/`，移动端引入 OpenAPI codegen 替换手写类型，再把 3537 行的 `mobile_frontend/src/App.tsx` 拆成多文件，最后做后端 V1→V2 数据模型收尾（`Task.project` 字符串、CustomerMaterial legacy 字段、ProjectV2 命名）。
 
+## 进度
+
+| 子项 | 状态 | commit | 日期 |
+|---|---|---|---|
+| 2.0 桌面前端归档 | ✅ 完成 | `4d33a56` (主仓) | 2026-05-10 |
+| 2.1 后端 OpenAPI 导出 + 快照测试 | ✅ 完成 | `9012397` (主仓) + `3eb9b65` (子仓) | 2026-05-10 |
+| 2.2 移动端 codegen 集成 | ✅ 完成 | `3c924e3` (主仓 bump) + `c9a0da1` (子仓) | 2026-05-10 |
+| 2.3 移动端 api.ts 瘦身 | ⏳ 待开始 | | |
+| 3.1–3.9 App.tsx 拆分 | ⏳ 待开始 | | |
+| 4.A Task.project 下线 | ⏳ 待开始 | | |
+| 4.B CustomerMaterial legacy | ⏳ 待开始 | | |
+| 4.C ProjectV2 命名统一 | ⏳ 待开始 | | |
+
 ---
 
 ## 0. 与已有 Plan 的关系
