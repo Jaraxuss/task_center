@@ -16,7 +16,6 @@ from models import (
     CustomerMaterialFact,
     CustomerMaterialStatus,
     ReviewBatch,
-    Task,
 )
 from models import (
     Project as ProjectV2,
@@ -27,26 +26,19 @@ from schemas import CustomerMaterialFactRead, CustomerMaterialRead
 def serialize_customer_material(material: CustomerMaterial) -> CustomerMaterialRead:
     return CustomerMaterialRead(
         id=material.id,
-        project=material.project,
         title=material.title,
         material_date=material.material_date,
-        source_type=material.source_type,
-        source=material.source,
-        source_refs=material.source_refs or {},
-        value_types=material.value_types or [],
         status=material.status,
-        task_id=material.task_id,
         created_at=material.created_at,
         updated_at=material.updated_at,
         archived_at=material.archived_at,
-        # V2 fields
-        customer_id=getattr(material, "customer_id", None),
-        project_v2_id=getattr(material, "project_v2_id", None),
-        review_batch_id=getattr(material, "review_batch_id", None),
-        material_type=getattr(material, "material_type", None),
-        period_start=getattr(material, "period_start", None),
-        period_end=getattr(material, "period_end", None),
-        raw_facts_markdown=getattr(material, "raw_facts_markdown", None),
+        customer_id=material.customer_id,
+        project_v2_id=material.project_v2_id,
+        review_batch_id=material.review_batch_id,
+        material_type=material.material_type,
+        period_start=material.period_start,
+        period_end=material.period_end,
+        raw_facts_markdown=material.raw_facts_markdown,
         generation_meta=material.generation_meta,
     )
 
@@ -66,13 +58,6 @@ def get_customer_material_or_404(db: Session, material_id: int) -> CustomerMater
     if not material:
         raise HTTPException(status_code=404, detail="Customer material not found")
     return material
-
-
-def validate_task_reference(db: Session, task_id: int | None) -> None:
-    if task_id is None:
-        return
-    if not db.get(Task, task_id):
-        raise HTTPException(status_code=404, detail="Referenced task not found")
 
 
 def validate_customer_material_references(
@@ -107,5 +92,4 @@ __all__ = [
     "serialize_material_fact",
     "validate_customer_material_references",
     "validate_customer_material_status",
-    "validate_task_reference",
 ]
