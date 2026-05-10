@@ -1,4 +1,4 @@
-"""Project V2 schemas (FK-based projects)."""
+"""Project schemas (FK-based projects)."""
 from __future__ import annotations
 
 from datetime import datetime
@@ -14,7 +14,7 @@ from ._common import (
 )
 
 
-class ProjectV2Create(BaseModel):
+class ProjectCreate(BaseModel):
     customer_id: int | None = None
     project_type: ProjectTypeValue = "customer"
     name: str = Field(..., min_length=1, max_length=255)
@@ -49,7 +49,7 @@ class ProjectV2Create(BaseModel):
         return normalize_string_list(v)
 
 
-class ProjectV2Update(BaseModel):
+class ProjectUpdate(BaseModel):
     customer_id: int | None = None
     project_type: ProjectTypeValue | None = None
     name: str | None = Field(default=None, min_length=1, max_length=255)
@@ -89,7 +89,7 @@ class ProjectV2Update(BaseModel):
         return normalize_string_list(v)
 
 
-class ProjectV2Read(BaseModel):
+class ProjectRead(BaseModel):
     id: int
     customer_id: int | None
     project_type: str

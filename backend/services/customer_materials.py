@@ -15,10 +15,8 @@ from models import (
     CustomerMaterial,
     CustomerMaterialFact,
     CustomerMaterialStatus,
+    Project,
     ReviewBatch,
-)
-from models import (
-    Project as ProjectV2,
 )
 from schemas import CustomerMaterialFactRead, CustomerMaterialRead
 
@@ -72,7 +70,7 @@ def validate_customer_material_references(
         customer = db.get(Customer, customer_id)
         if not customer:
             raise HTTPException(status_code=404, detail="Referenced customer not found")
-    if project_v2_id is not None and not db.get(ProjectV2, project_v2_id):
+    if project_v2_id is not None and not db.get(Project, project_v2_id):
         raise HTTPException(status_code=404, detail="Referenced project not found")
     if review_batch_id is not None and not db.get(ReviewBatch, review_batch_id):
         raise HTTPException(status_code=404, detail="Referenced review batch not found")

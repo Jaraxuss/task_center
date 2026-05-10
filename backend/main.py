@@ -40,9 +40,6 @@ from routers import (
     projects as projects_router,
 )
 from routers import (
-    projects_v2 as projects_v2_router,
-)
-from routers import (
     review_batches as review_batches_router,
 )
 from routers import (
@@ -78,11 +75,11 @@ app.include_router(health_router.router)
 app.include_router(preferences_router.router)
 app.include_router(knowledge_router.router)
 app.include_router(projects_router.router)
+app.include_router(projects_router.legacy_v2_router)
 app.include_router(tasks_router.router)
 app.include_router(dashboard_router.router)
 app.include_router(customer_materials_router.router)
 app.include_router(customers_router.router)
-app.include_router(projects_v2_router.router)
 app.include_router(facts_router.router)
 app.include_router(review_batches_router.router)
 

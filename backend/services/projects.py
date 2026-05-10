@@ -1,13 +1,13 @@
-"""Project (V2) domain services."""
+"""Project domain services."""
 
 from __future__ import annotations
 
-from models import Project as ProjectV2
-from schemas import ProjectV2Read
+from models import Project
+from schemas import ProjectRead
 
 
-def serialize_project_v2(project: ProjectV2) -> ProjectV2Read:
-    return ProjectV2Read(
+def serialize_project(project: Project) -> ProjectRead:
+    return ProjectRead(
         id=project.id,
         customer_id=project.customer_id,
         project_type=project.project_type,
@@ -23,4 +23,7 @@ def serialize_project_v2(project: ProjectV2) -> ProjectV2Read:
     )
 
 
-__all__ = ["serialize_project_v2"]
+# Backward-compat alias
+serialize_project_v2 = serialize_project
+
+__all__ = ["serialize_project", "serialize_project_v2"]

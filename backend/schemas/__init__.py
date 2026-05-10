@@ -60,7 +60,12 @@ from .knowledge import (
     KnowledgePreferenceRead,
     KnowledgePreferenceUpdate,
 )
-from .projects_v2 import ProjectV2Create, ProjectV2Read, ProjectV2Update
+from .projects import ProjectCreate, ProjectRead, ProjectUpdate
+
+# Backward-compat aliases (will be removed in a future cleanup)
+ProjectV2Create = ProjectCreate
+ProjectV2Read = ProjectRead
+ProjectV2Update = ProjectUpdate
 from .review_batches import ReviewBatchCreate, ReviewBatchRead, ReviewBatchUpdate
 from .tasks import (
     ReminderCreate,
@@ -137,7 +142,11 @@ __all__ = [
     "CustomerCreate",
     "CustomerRead",
     "CustomerUpdate",
-    # projects v2
+    # projects
+    "ProjectCreate",
+    "ProjectRead",
+    "ProjectUpdate",
+    # backward-compat aliases
     "ProjectV2Create",
     "ProjectV2Read",
     "ProjectV2Update",
