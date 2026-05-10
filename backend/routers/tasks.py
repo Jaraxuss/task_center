@@ -279,9 +279,28 @@ def list_task_customer_materials(
     include_archived: bool = False,
     db: Session = Depends(get_db),
 ) -> list[CustomerMaterialRead]:
+    """List materials linked to a task.
+
+    Uses raw SQL for the legacy task_id column (removed from ORM, still in DB
+    until the alembic migration drops it).  This endpoint will be removed once
+    the column is dropped.
+    """
+    from sqlalchemy import text
+
     get_task_or_404(db, task_id)
-    stmt = select(CustomerMaterial).where(CustomerMaterial.task_id == task_id)
-    if not include_archived:
-        stmt = stmt.where(CustomerMaterial.archived_at.is_(None))
-    stmt = stmt.order_by(CustomerMaterial.updated_at.desc(), CustomerMaterial.id.desc())
-    return [serialize_customer_material(material) for material in db.scalars(stmt).all()]
+    if include_archived:
+        rows = db.execute(
+            text("SELECT id FROM customer_materials WHERE task_id = :tid ORDER BY updated_at DESC, id DESC"),
+            {"tid": task_id},
+        ).fetchall()
+    else:
+        rows = db.execute(
+            text("SELECT id FROM customer_materials WHERE task_id = :tid AND archived_at IS NULL ORDER BY updated_at DESC, id DESC"),
+            {"tid": task_id},
+        ).fetchall()
+    ids = [r[0] for r in rows]
+    if not ids:
+        return []
+    materials = db.scalars(select(CustomerMaterial).where(CustomerMaterial.id.in_(ids))).all()
+    mat_map = {m.id: m for m in materials}
+    return [serialize_customer_material(mat_map[mid]) for mid in ids if mid in mat_map]

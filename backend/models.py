@@ -269,22 +269,13 @@ class Task(Base):
     events: Mapped[list[TaskEvent]] = relationship("TaskEvent", back_populates="task", cascade="all, delete-orphan")
     recurrence: Mapped[TaskRecurrence | None] = relationship("TaskRecurrence", back_populates="task", cascade="all, delete-orphan", uselist=False)
     project_rel: Mapped[Project | None] = relationship("Project", foreign_keys=[project_id], lazy="joined")
-    customer_materials: Mapped[list[CustomerMaterial]] = relationship("CustomerMaterial", back_populates="task")
 
 
 class CustomerMaterial(Base):
     __tablename__ = "customer_materials"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    # Legacy metadata fields (kept for backward compatibility)
-    project: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
-    source_type: Mapped[str] = mapped_column(String(32), nullable=False, default="text", index=True)
-    source: Mapped[str] = mapped_column(String(32), nullable=False, default="chat")
-    source_refs: Mapped[dict[str, Any]] = mapped_column("source_refs_json", JSONText, nullable=False, default=dict)
-    value_types: Mapped[list[str]] = mapped_column("value_types_json", JSONText, nullable=False, default=list)
-    task_id: Mapped[int | None] = mapped_column(ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True, index=True)
     archived_at: Mapped[datetime | None] = mapped_column(UTCDateTimeText(), nullable=True, index=True)
-    # V2 fields
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     material_date: Mapped[datetime | None] = mapped_column(UTCDateTimeText(), nullable=True, index=True)
     customer_id: Mapped[int | None] = mapped_column(ForeignKey("customers.id", ondelete="SET NULL"), nullable=True, index=True)
@@ -299,7 +290,6 @@ class CustomerMaterial(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTimeText(), nullable=False, default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTimeText(), nullable=False, default=now_utc, onupdate=now_utc)
 
-    task: Mapped[Task | None] = relationship("Task", back_populates="customer_materials")
     review_batch: Mapped[ReviewBatch | None] = relationship("ReviewBatch", back_populates="materials")
 
 
