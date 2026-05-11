@@ -29,7 +29,7 @@
 >
 > **2026-05-07 修订（按客户聚合查询补齐）：**
 >
-> - `GET /api/tasks` 新增 `customer_id` / `project_id` 两个筛选参数（FK 精确匹配），与 `/api/facts`、`/api/projects-v2`、`/api/customer-materials` 已有的同名参数行为一致。例：`/api/tasks?customer_id=1`。
+> - `GET /api/tasks` 新增 `customer_id` / `project_id` 两个筛选参数（FK 精确匹配），与 `/api/facts`、`/api/projects`、`/api/customer-materials` 已有的同名参数行为一致。例：`/api/tasks?customer_id=1`。
 > - 至此，**任意一个客户视图所需的四类列表**（任务 / 事实 / 项目 / 客户材料）都可以用统一的 `?customer_id=<id>` 检索，agent / 前端不再需要先拉全量再客户端过滤。
 
 ---
@@ -41,7 +41,7 @@
 | 模块 | 路径 | 职责 |
 |---|---|---|
 | 入口 | `backend/main.py` | 仅 FastAPI app / lifespan / CORS / 注册 routers，约 100 行；不含业务逻辑 |
-| HTTP 路由 | `backend/routers/` | 按领域拆分：`tasks.py` / `dashboard.py` / `facts.py` / `customer_materials.py` / `customers.py` / `projects.py`（旧字符串项目，提供 `/api/projects` 与 rename）/ `projects_v2.py`（FK 项目，`/api/projects-v2`）/ `review_batches.py` / `preferences.py` / `health.py` |
+| HTTP 路由 | `backend/routers/` | 按领域拆分：`tasks.py` / `dashboard.py` / `facts.py` / `customer_materials.py` / `customers.py` / `projects.py`（统一项目 CRUD，`/api/projects`；旧 `/api/projects-v2` 保留为兼容别名）/ `review_batches.py` / `preferences.py` / `health.py` |
 | 业务逻辑 | `backend/services/` | 同名服务模块（`tasks.py` / `dashboard.py` / `customer_materials.py` …），路由只编排、领域规则在这里 |
 | Pydantic schema | `backend/schemas.py` | 请求 / 响应模型（仍是单文件，后续可能拆分） |
 | ORM | `backend/models.py` | SQLAlchemy 模型 |
@@ -111,18 +111,20 @@
 curl -X POST http://127.0.0.1:8000/api/tasks \
   -H 'Content-Type: application/json' \
   -d '{
-    "title": "交付妮茜雅 3 个增购账号",
-    "description": "客户妮茜雅提出为避免五一断档，希望今天或明天把时间调整好并推进交付。本次需重点跟进 3 个增购账号交付。",
+    "title": "交付妮西雅 3 个增购账号",
+    "description": "客户妮西雅提出为避免五一断档，希望今天或明天把时间调整好并推进交付。本次需重点跟进 3 个增购账号交付。",
     "due_at": "2026-04-22T21:30:00",
-    "project": "客户_无锡妮茜雅",
-    "tags": ["客户", "交付", "增购账号", "妮茜雅"],
+    "area": "customer",
+    "customer_id": 5,
+    "project_id": null,
+    "tags": ["客户", "交付", "增购账号", "妮西雅"],
     "source": "chat",
     "source_type": "user_chat",
     "reminders": [
       {
         "remind_at": "2026-04-22T21:30:00",
         "channel": "chat",
-        "note": "提醒交付妮茜雅 3 个增购账号"
+        "note": "提醒交付妮西雅 3 个增购账号"
       }
     ]
   }'
@@ -199,7 +201,9 @@ payload = {
     'title': '交付妮茜雅 3 个增购账号',
     'description': '客户妮茜雅提出为避免五一断档，希望今天或明天把时间调整好并推进交付。',
     'due_at': '2026-04-22T21:30:00',
-    'project': '客户_无锡妮茜雅',
+    'area': 'customer',
+    'customer_id': 5,
+    'project_id': None,
     'tags': ['客户', '交付', '增购账号', '妮茜雅'],
     'source': 'chat',
     'source_type': 'user_chat',
@@ -435,31 +439,30 @@ curl -X PATCH http://127.0.0.1:8000/api/customers/1 \
 
 ### 10.4 Projects API
 
-注意：新项目 API 路径为 `/api/projects-v2`，区别于旧的 `/api/projects`（旧接口保持不动）。
+项目 API 统一路径为 `/api/projects`（Phase 4.C 已完成命名统一）。旧路径 `/api/projects-v2` 仍可用作兼容别名，但**新代码 / Skill / 脚本应统一使用 `/api/projects`**。
 
 ```bash
 # 列表（支持 customer_id、area、status、q）
-GET /api/projects-v2?customer_id=1&status=active
+GET /api/projects?customer_id=1&status=active
 
 # 创建项目
-POST /api/projects-v2
+POST /api/projects
 # 若有 customer_id 且未传 area，后端继承 customer.area。
-curl -X POST http://127.0.0.1:8000/api/projects-v2 \
+curl -X POST http://127.0.0.1:8000/api/projects \
   -H 'Content-Type: application/json' \
   -d '{
     "customer_id": 1,
     "project_type": "customer",
     "name": "处理 3 个账号增购合同流程",
-    "area": "客户_佰世赛",
     "tags": ["增购", "合同"]
   }'
 
 # 详情
-GET /api/projects-v2/{id}
+GET /api/projects/{id}
 
 # 更新
-PATCH /api/projects-v2/{id}
-curl -X PATCH http://127.0.0.1:8000/api/projects-v2/1 \
+PATCH /api/projects/{id}
+curl -X PATCH http://127.0.0.1:8000/api/projects/1 \
   -H 'Content-Type: application/json' \
   -d '{"status": "done"}'
 ```
@@ -661,29 +664,29 @@ curl -X PATCH http://127.0.0.1:8000/api/review-batches/1 \
 
 ### 10.8 Tasks 新增字段
 
-`tasks` 表新增以下字段（旧字段保留兼容）：
+`tasks` 表字段（Phase 4.A/4.C 已完成数据模型收尾）：
 
-| 新字段 | 类型 | 说明 |
+| 字段 | 类型 | 说明 |
 |---|---|---|
-| `area` | string(128) nullable | 归属分类，替代旧 `project` 的真实语义 |
+| `area` | string(128) nullable | 任务大类轴：`customer` / `internal` / `personal` / 空 |
 | `customer_id` | integer FK nullable | 关联客户 |
-| `project_id` | integer FK nullable | 关联项目 |
+| `project_id` | integer FK nullable | 关联项目（`projects` 表） |
 | `source_type` | string(32) nullable | **2026-05-04 新增**。任务来源标签，仅作分类，不存原文。推荐枚举：`forwarded_message` / `screenshot` / `meeting_note` / `user_chat` / `manual_input`。后端不做硬枚举校验，可扩展。 |
 
-旧 `project` 字段保留，兼容旧 API 和前端。创建/更新任务时：如果只传旧 `project`，后端兼容写入 `area`；返回时也保留旧 `project` 字段。
+> **2026-05-11 Phase 4.A.5 修订**：`tasks.project` 字符串列已从数据库物理删除。创建/更新任务时不再传 `project` 字段，应传 `project_id`。后端返回的 `TaskRead.project` 是从 `project_id` JOIN 派生的 `Project.name`，仅供显示。
 
 **`GET /api/tasks` 筛选参数：**
 
 | 参数 | 类型 | 说明 | 引入 |
 |---|---|---|---|
 | `status` | string | 任务状态精确匹配（`todo` / `doing` / `deferred` / `done` / `canceled`） | 一直存在 |
-| `q` | string | 标题 / 描述 / `project` 字段 ILIKE 模糊 | 一直存在 |
+| `q` | string | 标题 / 描述 / 项目名称 ILIKE 模糊 | 一直存在 |
 | `date` | string | 仅支持 `today`，按本地日界裁剪 `due_at` | 一直存在 |
 | `source_type` | string | 按来源标签精确匹配 | 2026-05-04 |
 | `from` | datetime ISO8601 | `created_at >= from`（含），北京时间字符串可直传 | 2026-05-04 |
 | `to` | datetime ISO8601 | `created_at < to`（不含） | 2026-05-04 |
 | `customer_id` | int | 按客户 FK 精确匹配（`tasks.customer_id`） | 2026-05-07 |
-| `project_id` | int | 按项目 FK 精确匹配（`tasks.project_id`，对应 `projects-v2`） | 2026-05-07 |
+| `project_id` | int | 按项目 FK 精确匹配（`tasks.project_id`，对应 `projects` 表） | 2026-05-07 |
 
 ```bash
 # 列出本周转发类任务，做一致性检查
