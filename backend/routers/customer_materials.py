@@ -81,12 +81,6 @@ def create_customer_material(payload: CustomerMaterialCreate, db: Session = Depe
         review_batch_id=payload.review_batch_id,
     )
     material = CustomerMaterial(
-        project="",
-        source_type="text",
-        source="system",
-        source_refs={},
-        value_types=[],
-        task_id=None,
         title=payload.title,
         material_date=payload.material_date,
         status=payload.status,

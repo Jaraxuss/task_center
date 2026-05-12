@@ -275,6 +275,14 @@ class CustomerMaterial(Base):
     __tablename__ = "customer_materials"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    # Legacy columns still exist in the deployed SQLite schema and are NOT NULL.
+    # Keep them mapped with safe defaults so the consolidated v2 API can create rows.
+    project: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    source_type: Mapped[str] = mapped_column(String(32), nullable=False, default="text")
+    source: Mapped[str] = mapped_column(String(32), nullable=False, default="system")
+    source_refs: Mapped[dict[str, Any]] = mapped_column("source_refs_json", JSONText, nullable=False, default=dict)
+    value_types: Mapped[list[str]] = mapped_column("value_types_json", JSONText, nullable=False, default=list)
+    task_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     archived_at: Mapped[datetime | None] = mapped_column(UTCDateTimeText(), nullable=True, index=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     material_date: Mapped[datetime | None] = mapped_column(UTCDateTimeText(), nullable=True, index=True)
