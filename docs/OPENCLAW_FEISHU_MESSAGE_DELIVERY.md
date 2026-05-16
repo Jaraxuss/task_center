@@ -54,12 +54,13 @@ TaskCenter 默认建议：
 - 简短状态变更通知；
 - 任何“文案已经准备好，只差发送”的场景。
 
-#### 成本与可靠性
+#### 成本、可靠性与格式限制
 
 - 模型 token：约 0；
 - 链路：最短；
 - 确定性：最高；
-- 风险：主要是飞书插件、目标 ID、网络或权限问题；不会被 Agent 输出 `NO_REPLY` 或静默策略影响。
+- 风险：主要是飞书插件、目标 ID、网络或权限问题；不会被 Agent 输出 `NO_REPLY` 或静默策略影响；
+- 格式：按纯文本使用，支持换行和简单项目符号即可；不要依赖 Markdown/富文本渲染，复杂卡片、表格、按钮、状态色应改走 Feishu 原生卡片、文档链接或 Agent/脚本生成的专门消息格式。
 
 #### 基本命令
 
@@ -752,15 +753,16 @@ openclaw cron add \
 ## 9. 实施注意事项
 
 1. 单条飞书消息尽量控制在几百字以内。
-2. 长日志不要直接发全文，改发摘要 + 文件路径。
-3. Python/Node/脚本中调用 CLI 时优先使用参数数组，不要 shell 拼接。
-4. 必须检查 CLI 退出码。
-5. 失败重试要有限次数，避免异常时刷屏。
-6. 如果消息需要保证送达，不要用 `openclaw system event` / `cron main system-event`。
-7. 如果用 `openclaw agent --deliver`，必须指定 `--agent` 或 `--session-id`。
-8. 如果用 `cron isolated agentTurn` 并希望飞书收到，必须显式配置 `--announce --channel feishu --to ...`。
-9. 如果 dashboard 显示 `status: ok` 但用户没收到，继续看 `deliveryStatus`：
+2. `openclaw message send --message` 按纯文本通道使用；换行和简单列表可以用，但不要强依赖 Markdown 加粗、表格、代码块等复杂渲染。
+3. 长日志不要直接发全文，改发摘要 + 文件路径。
+4. Python/Node/脚本中调用 CLI 时优先使用参数数组，不要 shell 拼接。
+5. 必须检查 CLI 退出码。
+6. 失败重试要有限次数，避免异常时刷屏。
+7. 如果消息需要保证送达，不要用 `openclaw system event` / `cron main system-event`。
+8. 如果用 `openclaw agent --deliver`，必须指定 `--agent` 或 `--session-id`。
+9. 如果用 `cron isolated agentTurn` 并希望飞书收到，必须显式配置 `--announce --channel feishu --to ...`。
+10. 如果 dashboard 显示 `status: ok` 但用户没收到，继续看 `deliveryStatus`：
    - `delivered`：已进入并完成投递；
    - `not-requested`：没有请求外部投递，常见于 `system-event`；
    - `not-delivered` / error：投递失败，需要查 channel/target/权限。
-10. TaskCenter 的普通提醒文案应尽量在 TaskCenter 侧组装完整，然后使用 `openclaw message send` 发送；只有需要模型处理时才让 Agent 参与。
+11. TaskCenter 的普通提醒文案应尽量在 TaskCenter 侧组装完整，然后使用 `openclaw message send` 发送；只有需要模型处理时才让 Agent 参与。
