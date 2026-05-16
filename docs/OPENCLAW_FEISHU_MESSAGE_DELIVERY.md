@@ -15,14 +15,14 @@ OpenClaw 里常见的飞书通知/提醒链路有 4 类：
 | 方案 | 定义 | 典型命令 | 是否经过 Agent/模型 | 是否定时 | 是否确定性投递 | 成本 |
 |---|---|---|---|---|---|---|
 | 原文确定发送 | 把已有文本原样发到飞书 | `openclaw message send` | 否 | 否 | 高 | 约 0 token |
-| 立即让 Agent 处理后发送 | 现在跑一次 Agent，把最终回复投递到飞书 | `openclaw agent --message ... --deliver` | 是 | 否 | 中，取决于 Agent 输出和投递配置 | 有 token 消耗 |
+| 立即让 Agent 处理后发送 | 现在跑一次 Agent，把最终回复投递到飞书 | `openclaw agent --message ... --deliver` | 是 | 否 | 中，取决于 Agent 输出和投递配置 | 有 token 消耗；用新 `--session-id` 更干净 |
 | 定时让 Agent 处理后发送 | 到点新开隔离 Agent 任务，执行 prompt 后投递 | `openclaw cron add --session isolated --message ... --announce` | 是 | 是 | 中高，配置明确时可追踪 delivery | 有 token 消耗，较可控 |
 | 定时唤醒主会话 | 到点向主会话注入一条系统事件 | `openclaw cron add --session main --system-event ...` | 是，进入主会话处理 | 是 | 低，不等于飞书送达 | 有 token 消耗，最不稳定 |
 
 一句话判断：
 
 - **消息已经确定，只要发出去** → 用 `openclaw message send`。
-- **现在需要 AI 总结/改写/判断后发** → 用 `openclaw agent --deliver`。
+- **现在需要 AI 总结/改写/判断后发** → 用 `openclaw agent --deliver`；如果希望上下文干净，给它一个新的 `--session-id`。
 - **到点需要 AI 查数据/读文件/总结后发** → 用 `openclaw cron add --session isolated --message ... --announce`。
 - **只是要把一条事件塞回主会话，让主助手基于当前上下文处理** → 用 `openclaw cron add --session main --system-event ...`。
 
@@ -187,11 +187,13 @@ task_center #156：让朱老师填写《私有云部署前信息问卷》。
 - 需要生成更自然、结构化的中文消息；
 - 维护纪要、临时报告、一次性总结。
 
-#### 成本与可靠性
+#### 成本、上下文与可靠性
 
 - 模型 token：有消耗；
 - 消耗大小取决于所选 Agent/session 的上下文、prompt 长度、工具调用结果和最终输出；
-- 如果跑 main agent，可能带上较多主会话上下文，成本更高；
+- `--agent main` 表示使用 main agent 的配置、工具、工作区和默认/主 session；**不要把它理解成自动获取当前飞书 DM 会话的完整上下文**；
+- 如果需要当前聊天上下文，必须显式路由到对应 session；脚本里通常不建议依赖当前聊天上下文，因为不可控且 token 成本高；
+- 如果希望上下文干净，用新的 `--session-id`；如果希望同类自动任务保留自己的连续上下文，用固定 `--session-id`；
 - 如果 Agent 输出 `NO_REPLY` 或没有用户可见最终回复，可能不会投递期望消息；
 - `--deliver` 只负责投递 Agent 最终回复，不代表一定有可投递内容。
 
@@ -209,7 +211,7 @@ task_center #156：让朱老师填写《私有云部署前信息问卷》。
 >
 > `--deliver` 只负责把 Agent 的最终回复发出去，不负责选择 Agent 会话入口。
 
-#### 正确写法：指定 `--agent main`
+#### 写法 A：指定 `--agent main`，使用 main agent 默认/主 session
 
 ```bash
 openclaw agent \
@@ -222,17 +224,44 @@ openclaw agent \
 
 说明：
 
-- `--agent main`：指定这次 Agent turn 在 main agent 下运行；
+- `--agent main`：使用 main agent 的配置、工具、工作区和默认/主 session；
+- 这不等于自动使用当前飞书 DM 会话上下文；
 - `--deliver`：要求把 Agent 最终回复投递出去；
 - `--reply-channel feishu`：最终投递渠道是飞书；
 - `--reply-to user:ou_...`：最终投递给指定飞书用户。
 
-#### 正确写法：指定固定 `--session-id`
+适合：临时让 main agent 处理一次任务，且不强求上下文干净。
+
+#### 写法 B：指定新的 `--session-id`，立即运行一个干净上下文任务
+
+如果要“立即版 isolated agentTurn”，给这次命令一个新的 session id：
+
+```bash
+sid="oneoff-feishu-report-$(date +%Y%m%d%H%M%S)"
+
+openclaw agent \
+  --agent main \
+  --session-id "$sid" \
+  --message "请读取 /path/to/report 并总结成简洁中文发给南哥。" \
+  --deliver \
+  --reply-channel feishu \
+  --reply-to user:ou_8ca37a28527b51fdad39a83998c37625
+```
+
+说明：
+
+- 仍然使用 `main` agent 的能力、工具和工作区；
+- 由于 `--session-id` 是新的，不会直接混入当前飞书 DM 会话上下文；
+- 适合一次性维护报告、临时日志总结、脚本触发的干净任务；
+- 如果未来重复使用同一个 session id，它会积累该自动任务自己的上下文。
+
+#### 写法 C：指定固定 `--session-id`，让同类自动任务保留自己的上下文
 
 适合脚本 / 周期任务，让同一类自动任务稳定落在一个固定 session：
 
 ```bash
 openclaw agent \
+  --agent main \
   --session-id taskcenter-maintenance-report \
   --message "请读取 /path/to/report 并总结成简洁中文发给南哥" \
   --deliver \
@@ -240,17 +269,26 @@ openclaw agent \
   --reply-to user:ou_8ca37a28527b51fdad39a83998c37625
 ```
 
+说明：
+
+- 固定 `--session-id` 会让这类自动任务形成自己的连续上下文；
+- 适合维护报告、固定巡检、固定类别的脚本总结；
+- 不适合必须每次完全干净的任务。每次干净请用新的 session id。
+
 #### Python 脚本安全调用
 
 ```python
 import subprocess
+from datetime import datetime
 
 prompt = "请把以下错误日志总结成简洁中文提醒南哥：\n" + log_text
+session_id = "oneoff-error-summary-" + datetime.now().strftime("%Y%m%d%H%M%S")
 
 result = subprocess.run(
     [
         "openclaw", "agent",
         "--agent", "main",
+        "--session-id", session_id,  # 新 session id：避免混入当前飞书 DM 上下文
         "--message", prompt,
         "--deliver",
         "--reply-channel", "feishu",
@@ -482,8 +520,11 @@ openclaw message send
 < isolated agentTurn
 有 token，但上下文干净、较可控
 
+< openclaw agent --agent main --session-id <new-id> --deliver
+有 token，但上下文相对干净
+
 < openclaw agent --agent main --deliver / system-event main
-可能较高，取决于主会话上下文
+可能较高，取决于默认/主 session 或主会话上下文
 ```
 
 ### 4.2 成本表
@@ -492,7 +533,8 @@ openclaw message send
 |---|---|---|---|---|
 | `openclaw message send` | 无 | 无 | 最稳定 | 适合确定性提醒和告警 |
 | `cron isolated agentTurn` | 有 | 系统提示 + 任务 prompt + 工具输出 + 最终回复 | 较可控 | 定时 AI 任务首选 |
-| `openclaw agent --deliver` | 有 | 所选 agent/session 上下文 + prompt + 工具输出 | 中等到较高 | 适合立即 AI 加工后发送 |
+| `openclaw agent --agent main --session-id <new-id> --deliver` | 有 | 系统提示 + prompt + 工具输出 + 最终回复 | 较可控 | 适合立即执行的干净上下文 AI 任务 |
+| `openclaw agent --agent main --deliver` | 有 | main agent 默认/主 session 上下文 + prompt + 工具输出 | 中等到较高 | 适合立即 AI 加工后发送；不等于当前飞书 DM 上下文 |
 | `cron main system-event` | 有 | 主会话上下文 + system event + 工具输出 | 最不可控 | 适合主会话唤醒，不适合确定性投递 |
 
 ### 4.3 可靠性表
@@ -500,7 +542,7 @@ openclaw message send
 | 方式 | 是否保证进入飞书投递链路 | 典型失败/不达预期原因 |
 |---|---|---|
 | `openclaw message send` | 是 | 飞书目标错误、权限/网络/插件异常 |
-| `openclaw agent --deliver` | 是，前提是 Agent 有最终可投递回复 | 缺 `--agent`/`--session-id`、Agent 输出 `NO_REPLY`、飞书投递失败 |
+| `openclaw agent --deliver` | 是，前提是 Agent 有最终可投递回复 | 缺会话入口、误以为 `--agent main` 等于当前 DM 上下文、Agent 输出 `NO_REPLY`、飞书投递失败 |
 | `cron isolated agentTurn + --announce` | 是，前提是配置了 delivery | 缺 `--announce`/`--to`、Agent 输出 `NO_REPLY`、任务超时 |
 | `cron main system-event` | 否 | 只是注入主会话，`deliveryStatus` 常为 `not-requested` |
 
@@ -566,7 +608,19 @@ Agent 会话入口用：
 --session-id some-fixed-session
 ```
 
-### 5.3 误以为 `--deliver` 一定会发飞书
+### 5.3 误以为 `--agent main` 等于当前飞书 DM 完整上下文
+
+`--agent main` 只表示使用 main agent 的配置和默认/主 session。
+
+它不等于：
+
+- 自动拿到当前飞书 DM 的完整历史；
+- 自动继承当前用户消息所在 session；
+- 自动使用当前对话的所有上下文。
+
+如果脚本需要稳定、低成本、可复现的行为，优先把必要上下文写进 `--message`，并用新的或固定的 `--session-id` 控制上下文范围。
+
+### 5.4 误以为 `--deliver` 一定会发飞书
 
 `--deliver` 会把 Agent 的最终回复投递到指定目标，但前提是：
 
@@ -578,7 +632,7 @@ Agent 会话入口用：
 
 因此脚本里仍然要检查 CLI 退出码，不能假设调用了就一定送达。
 
-### 5.4 误以为 `system-event` 是飞书消息
+### 5.5 误以为 `system-event` 是飞书消息
 
 `system-event` 的机制不是“直接发送飞书消息”。
 
@@ -627,7 +681,7 @@ Agent 会话入口用：
 选择方式：
 
 - 定时执行 → cron isolated agentTurn；
-- 现在立即处理 → agent deliver。
+- 现在立即处理 → agent deliver；若希望上下文干净，使用新的 `--session-id`。
 
 原因：
 
@@ -661,8 +715,9 @@ Agent 会话入口用：
 | TaskCenter 到点提醒 | `openclaw message send` | 确定性通知，链路短，0 token |
 | 备份失败告警，脚本已确定失败 | `openclaw message send` | 不需要模型判断 |
 | 脚本执行失败 | `openclaw message send` | 直接告警更可靠 |
-| 长日志立即总结后通知 | `openclaw agent --deliver` | 需要模型压缩，立即执行 |
-| 临时维护纪要立即发送 | `openclaw agent --deliver` | 需要自然语言整理 |
+| 长日志立即总结后通知 | `openclaw agent --agent main --session-id <new-id> --deliver` | 需要模型压缩，立即执行，且上下文干净 |
+| 临时维护纪要立即发送 | `openclaw agent --agent main --session-id <new-id> --deliver` | 需要自然语言整理，不依赖当前聊天上下文 |
+| 需要复用某类自动任务上下文 | `openclaw agent --agent main --session-id <固定id> --deliver` | 同类任务独立积累上下文 |
 | 晚间收口定时任务 | `cron isolated agentTurn + announce` | 需要读取数据并结构化输出 |
 | 周报 / 客户跟进总结定时任务 | `cron isolated agentTurn + announce` | 定时 AI 任务，成本可控 |
 | 只想唤醒主会话 | `cron main system-event` | 注入主会话，不保证飞书直发 |
@@ -683,7 +738,7 @@ openclaw message send \
   --message "$text"
 ```
 
-### 8.2 立即让 Agent 处理后发送：main agent 模板
+### 8.2 立即让 Agent 处理后发送：main agent 默认/主 session 模板
 
 ```bash
 prompt="请把以下内容总结成简洁中文提醒南哥：..."
@@ -696,12 +751,30 @@ openclaw agent \
   --reply-to user:ou_8ca37a28527b51fdad39a83998c37625
 ```
 
-### 8.3 立即让 Agent 处理后发送：固定 session 模板
+注意：这个模板使用 main agent 默认/主 session，不等于当前飞书 DM 完整上下文。
+
+### 8.3 立即让 Agent 处理后发送：一次性干净 session 模板
+
+```bash
+prompt="请读取 /path/to/report 并总结成简洁中文提醒南哥：..."
+sid="oneoff-agent-report-$(date +%Y%m%d%H%M%S)"
+
+openclaw agent \
+  --agent main \
+  --session-id "$sid" \
+  --message "$prompt" \
+  --deliver \
+  --reply-channel feishu \
+  --reply-to user:ou_8ca37a28527b51fdad39a83998c37625
+```
+
+### 8.4 立即让 Agent 处理后发送：固定 session 模板
 
 ```bash
 prompt="请读取 TaskCenter 今日数据并生成晚间收口消息。"
 
 openclaw agent \
+  --agent main \
   --session-id taskcenter-nightly-review \
   --message "$prompt" \
   --deliver \
@@ -709,7 +782,7 @@ openclaw agent \
   --reply-to user:ou_8ca37a28527b51fdad39a83998c37625
 ```
 
-### 8.4 定时让 Agent 处理后发送：一次性任务模板
+### 8.5 定时让 Agent 处理后发送：一次性任务模板
 
 ```bash
 openclaw cron add \
@@ -723,7 +796,7 @@ openclaw cron add \
   --delete-after-run
 ```
 
-### 8.5 定时让 Agent 处理后发送：周期任务模板
+### 8.6 定时让 Agent 处理后发送：周期任务模板
 
 ```bash
 openclaw cron add \
@@ -738,7 +811,7 @@ openclaw cron add \
   --timeout-seconds 180
 ```
 
-### 8.6 定时唤醒主会话：system-event 模板
+### 8.7 定时唤醒主会话：system-event 模板
 
 ```bash
 openclaw cron add \
@@ -770,3 +843,4 @@ openclaw cron add \
    - `not-requested`：没有请求外部投递，常见于 `system-event`；
    - `not-delivered` / error：投递失败，需要查 channel/target/权限。
 11. TaskCenter 的普通提醒文案应尽量在 TaskCenter 侧组装完整，然后使用 `openclaw message send` 发送；只有需要模型处理时才让 Agent 参与。
+12. 脚本里如果要立即运行 Agent，默认优先用新的或固定的 `--session-id` 控制上下文；不要默认依赖 `--agent main` 的上下文，也不要假设它就是当前飞书 DM 会话。
