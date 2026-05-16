@@ -3,6 +3,8 @@
 > 适用对象：TaskCenter 维护脚本、定时任务、告警脚本，以及接手本项目但不了解 OpenClaw/飞书链路的 AI Agent。
 >
 > 目标：让新的 AI 或脚本维护者看完后能判断：什么时候直接发飞书，什么时候让 Agent 处理后再发，什么时候创建定时 Agent 任务，什么时候只唤醒主会话。
+>
+> 相关文档：cron CLI 的增删改查、调试与 TaskCenter 集成细节见 [`OPENCLAW_CRON_CLI.md`](./OPENCLAW_CRON_CLI.md)。
 
 ---
 
@@ -268,6 +270,8 @@ if result.returncode != 0:
 ---
 
 ### 2.3 定时让 Agent 处理后发送：`openclaw cron add --session isolated --message ... --announce`
+
+> 更完整的 cron 命令行管理说明见 [`OPENCLAW_CRON_CLI.md`](./OPENCLAW_CRON_CLI.md)。
 
 #### 定义
 
