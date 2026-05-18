@@ -1,0 +1,20 @@
+{
+  "config": {
+    "enable_forward": true,
+    "update_multi": false,
+    "width_mode": "default"
+  },
+  "header": {
+    "title": {
+      "tag": "plain_text",
+      "content": "TaskCenter 提醒"
+    },
+    "template": "blue"
+  },
+  "elements": [
+    {
+      "tag": "markdown",
+      "content": "提醒：这是一个 Card JSON 1.0 示例。"
+    }
+  ]
+}
