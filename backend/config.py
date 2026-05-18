@@ -21,6 +21,10 @@ class Settings:
     cors_origins: list[str]
     database_path: Path
     database_url: str
+    feishu_app_id: str | None
+    feishu_app_secret: str | None
+    feishu_default_receive_id: str | None
+    feishu_default_receive_id_type: str
 
 
 def _split_csv(value: str | None) -> list[str]:
@@ -75,4 +79,10 @@ def get_settings() -> Settings:
         cors_origins=cors_origins,
         database_path=database_path,
         database_url=database_url,
+        # Prefer TaskCenter-scoped names, but keep FEISHU_* as a convenient
+        # compatibility fallback for existing local scripts.
+        feishu_app_id=os.getenv("TASK_CENTER_FEISHU_APP_ID") or os.getenv("FEISHU_APP_ID"),
+        feishu_app_secret=os.getenv("TASK_CENTER_FEISHU_APP_SECRET") or os.getenv("FEISHU_APP_SECRET"),
+        feishu_default_receive_id=os.getenv("TASK_CENTER_FEISHU_DEFAULT_RECEIVE_ID"),
+        feishu_default_receive_id_type=os.getenv("TASK_CENTER_FEISHU_DEFAULT_RECEIVE_ID_TYPE", "open_id"),
     )
