@@ -1,13 +1,19 @@
 from __future__ import annotations
 
 import json
+import sys
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
 import pytest
 
+SDK_DIR = Path(__file__).resolve().parents[1] / "scripts" / "sdk" / "feishu-card-v2"
+if str(SDK_DIR) not in sys.path:
+    sys.path.insert(0, str(SDK_DIR))
+
 from config import get_settings
-from services.feishu_card import (
+from feishu_card_v2 import (  # noqa: E402
     FeishuAPIError,
     FeishuAuth,
     FeishuCardClient,

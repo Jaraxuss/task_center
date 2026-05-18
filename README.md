@@ -10,6 +10,7 @@
    - FastAPI + SQLite
    - 负责任务、提醒、事件日志、周期任务、dashboard 聚合接口
    - 是整个系统的单一数据事实来源
+   - 内置飞书卡片 SDK：`backend/scripts/sdk/feishu-card-v1/` 与 `backend/scripts/sdk/feishu-card-v2/`
 
 2. **`mobile_frontend/`**
    - React + TypeScript + Vite
@@ -79,6 +80,9 @@
 - `docs/PRD.md`：产品目标与范围
 - `docs/API_CONTRACT.md`：接口契约
 - `docs/TIMEZONE_DESIGN.md`：时间系统设计
+- `backend/scripts/sdk/README.md`：飞书卡片 V1 / V2 SDK 统一入口
+- `docs/FEISHU_CARD_V1_SDK.md`：飞书 Card JSON 1.0 SDK 说明
+- `docs/FEISHU_CARD_V2_SDK.md`：飞书 Card JSON 2.0 SDK 说明
 - `docs/HANDOFF.md`：早期交接文档（偏历史阶段说明）
 - `docs/ITERATION_BACKLOG.md`：迭代积压
 

@@ -1,0 +1,31 @@
+{
+  "schema": "2.0",
+  "config": {
+    "update_multi": true,
+    "width_mode": "fill",
+    "enable_forward": true
+  },
+  "body": {
+    "direction": "vertical",
+    "padding": "12px 12px 12px 12px",
+    "horizontal_spacing": "8px",
+    "vertical_spacing": "4px",
+    "elements": [
+      {
+        "tag": "markdown",
+        "content": "提醒：这是一个 Card JSON 2.0 示例。",
+        "text_align": "left",
+        "element_id": "md_0",
+        "margin": "0px 0px 0px 0px"
+      }
+    ]
+  },
+  "header": {
+    "title": {
+      "tag": "plain_text",
+      "content": "TaskCenter 提醒"
+    },
+    "template": "blue",
+    "padding": "12px 12px 12px 12px"
+  }
+}

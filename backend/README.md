@@ -17,7 +17,7 @@
   - `tasks.nightly_reviewed_at`
   - `task_events.event_type = nightly_reviewed`
   - `GET /api/nightly-review`
-- 新增 **飞书卡片 V2 SDK**：TaskCenter 可直接通过飞书开放平台发送 Card JSON 2.0 卡片/文本提醒，详见 `../docs/FEISHU_CARD_V2_SDK.md`
+- 新增 **飞书卡片 SDK**：TaskCenter 可直接通过飞书开放平台发送 Card JSON 1.0 / 2.0 卡片与文本提醒，详见 `scripts/sdk/README.md`、`../docs/FEISHU_CARD_V1_SDK.md`、`../docs/FEISHU_CARD_V2_SDK.md`
 
 ## 目录结构
 ```bash
@@ -30,9 +30,12 @@ backend/
 ├── requirements.txt
 ├── schemas/
 ├── services/
-│   └── feishu_card/  # 飞书卡片 V2 SDK
+│   └── feishu_card/  # 飞书卡片 V2 兼容 import 层
 ├── scripts/
-│   └── send_feishu_card.py  # SDK smoke/运维脚本
+│   ├── send_feishu_card.py  # V2 smoke 兼容入口
+│   └── sdk/
+│       ├── feishu-card-v1/  # 飞书 Card JSON 1.0 SDK
+│       └── feishu-card-v2/  # 飞书 Card JSON 2.0 SDK
 ├── seed_demo.py
 └── data/
     └── task_center.db   # 启动后自动生成
@@ -80,7 +83,7 @@ uvicorn main:app --reload --host "$TASK_CENTER_API_HOST" --port "$TASK_CENTER_AP
 export TASK_CENTER_CORS_ORIGINS=http://192.168.31.169:5173,http://127.0.0.1:5173,http://localhost:5173
 ```
 
-如果要启用 TaskCenter 飞书卡片 V2 SDK，配置：
+如果要启用 TaskCenter 飞书卡片 SDK，配置：
 
 ```bash
 export TASK_CENTER_FEISHU_APP_ID=cli_xxx
@@ -93,7 +96,8 @@ export TASK_CENTER_FEISHU_DEFAULT_RECEIVE_ID_TYPE=open_id
 
 ```bash
 source .venv/bin/activate
-python scripts/send_feishu_card.py --text "提醒：测试" --dry-run
+python scripts/sdk/feishu-card-v2/send_card_v2.py --text "提醒：测试" --dry-run
+python scripts/sdk/feishu-card-v1/send_card_v1.py --text "提醒：测试" --dry-run
 ```
 
 启动后可访问：
