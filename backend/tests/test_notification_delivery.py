@@ -1,0 +1,109 @@
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+from config import Settings
+from models import Project, Task
+from services.notification_delivery import send_task_card_v2, task_card_request_uuid
+from services.task_card_builder import build_task_card_v2, task_card_markdown
+
+
+def _settings() -> Settings:
+    return Settings(
+        api_host="0.0.0.0",
+        api_port=8000,
+        cors_origins=[],
+        database_path=Path(":memory:"),
+        database_url="sqlite:///:memory:",
+        feishu_app_id="cli_test",
+        feishu_app_secret="secret",
+        feishu_default_receive_id="ou_8ca37a28527b51fdad39a83998c37625",
+        feishu_default_receive_id_type="open_id",
+    )
+
+
+def _task() -> Task:
+    task = Task(
+        id=156,
+        title="让朱老师填写私有云部署前信息问卷",
+        description="雷允上药业私有云部署申请已提交；下一步需要引导客户朱老师填写部署前信息问卷。",
+        due_at=datetime(2026, 5, 19, 11, 30, tzinfo=timezone.utc),
+        status="todo",
+        area="上海",
+        source="test",
+    )
+    task.updated_at = datetime(2026, 5, 19, 1, 2, 3, tzinfo=timezone.utc)
+    task.project_rel = Project(id=1, name="雷允上药业")
+    return task
+
+
+class FakeCardSender:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    def send_card(
+        self,
+        *,
+        receive_id: str,
+        card: dict[str, Any],
+        receive_id_type: str = "open_id",
+        uuid: str | None = None,
+    ) -> dict[str, Any]:
+        self.calls.append(
+            {
+                "receive_id": receive_id,
+                "receive_id_type": receive_id_type,
+                "card": card,
+                "uuid": uuid,
+            }
+        )
+        return {"code": 0, "msg": "success", "data": {"message_id": "om_test"}}
+
+
+def test_task_card_markdown_contains_task_context() -> None:
+    markdown = task_card_markdown(_task(), note="请今天处理")
+
+    assert "task_center #156" in markdown
+    assert "让朱老师填写私有云部署前信息问卷" in markdown
+    assert "2026-05-19 19:30" in markdown
+    assert "雷允上药业" in markdown
+    assert "请今天处理" in markdown
+
+
+def test_build_task_card_v2_returns_feishu_card() -> None:
+    card = build_task_card_v2(_task())
+
+    assert card["schema"] == "2.0"
+    assert card["header"]["title"]["content"] == "TaskCenter 提醒"
+    assert card["header"]["subtitle"]["content"] == "task_center #156"
+    assert "task_center #156" in card["body"]["elements"][0]["content"]
+
+
+def test_send_task_card_v2_dry_run_does_not_send() -> None:
+    sender = FakeCardSender()
+    result = send_task_card_v2(_task(), dry_run=True, settings=_settings(), client=sender)
+
+    assert result.status == "dry_run"
+    assert result.provider == "feishu_card_v2"
+    assert result.message_id is None
+    assert result.receive_id_type == "open_id"
+    assert result.card_size_bytes > 0
+    assert sender.calls == []
+
+
+def test_send_task_card_v2_sends_to_configured_open_id() -> None:
+    sender = FakeCardSender()
+    task = _task()
+    result = send_task_card_v2(task, note="移动端手动触发", settings=_settings(), client=sender)
+
+    assert result.status == "sent"
+    assert result.message_id == "om_test"
+    assert result.request_uuid == task_card_request_uuid(task)
+    assert len(sender.calls) == 1
+    call = sender.calls[0]
+    assert call["receive_id"] == "ou_8ca37a28527b51fdad39a83998c37625"
+    assert call["receive_id_type"] == "open_id"
+    assert call["uuid"] == task_card_request_uuid(task)
+    assert "移动端手动触发" in call["card"]["body"]["elements"][0]["content"]
