@@ -38,8 +38,8 @@ class TaskCardDeliveryResult:
 def task_card_request_uuid(task: Task) -> str:
     """Build a deterministic UUID for manual task-card delivery attempts."""
 
-    updated_at = task.updated_at.isoformat() if task.updated_at else "unknown"
-    return f"task:{task.id}:manual-card:{updated_at}"
+    updated_at = int(task.updated_at.timestamp()) if task.updated_at else 0
+    return f"tc-task-{task.id}-{updated_at}"
 
 
 def send_task_card_v2(
