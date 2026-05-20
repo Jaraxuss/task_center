@@ -70,6 +70,7 @@ from .review_batches import ReviewBatchCreate, ReviewBatchRead, ReviewBatchUpdat
 from .tasks import (
     ReminderCreate,
     ReminderRead,
+    ReminderUpdate,
     TaskActionCancel,
     TaskActionComplete,
     TaskActionDefer,
@@ -105,6 +106,7 @@ __all__ = [
     # tasks
     "ReminderCreate",
     "ReminderRead",
+    "ReminderUpdate",
     "TaskActionCancel",
     "TaskActionComplete",
     "TaskActionDefer",

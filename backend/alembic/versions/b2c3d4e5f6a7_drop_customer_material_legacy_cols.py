@@ -43,7 +43,6 @@ def upgrade() -> None:
         batch_op.drop_index("ix_customer_materials_project")
         batch_op.drop_index("ix_customer_materials_source_type")
         batch_op.drop_index("ix_customer_materials_task_id")
-        batch_op.drop_constraint("fk_customer_materials_task_id_tasks", type_="foreignkey")
         batch_op.drop_column("project")
         batch_op.drop_column("source_type")
         batch_op.drop_column("source")

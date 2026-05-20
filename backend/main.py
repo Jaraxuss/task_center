@@ -8,6 +8,7 @@ and HTTP routes are split per-domain under ``routers/``.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -15,6 +16,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from config import get_settings
+from db import SessionLocal
 from routers import (
     customer_materials as customer_materials_router,
 )
@@ -45,6 +47,7 @@ from routers import (
 from routers import (
     tasks as tasks_router,
 )
+from services.reminder_worker import process_due_card_reminders
 from services.schema_compat import (
     ensure_schema_compatibility,
     init_db,
@@ -58,7 +61,30 @@ settings = get_settings()
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     init_db()
-    yield
+    stop_event = asyncio.Event()
+
+    async def reminder_worker_loop() -> None:
+        while not stop_event.is_set():
+            session = SessionLocal()
+            try:
+                process_due_card_reminders(session, settings=settings)
+            finally:
+                session.close()
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=settings.reminder_worker_interval_seconds)
+            except TimeoutError:
+                continue
+
+    worker_task = asyncio.create_task(reminder_worker_loop())
+    try:
+        yield
+    finally:
+        stop_event.set()
+        worker_task.cancel()
+        try:
+            await worker_task
+        except asyncio.CancelledError:
+            pass
 
 
 app = FastAPI(title="Task Center Backend", version="0.2.0", lifespan=lifespan)

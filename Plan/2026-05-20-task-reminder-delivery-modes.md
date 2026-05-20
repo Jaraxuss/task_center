@@ -11,7 +11,7 @@
 - 飞书卡片 V1：兼容模式，由 TaskCenter 内部 worker 到点发送 Card JSON 1.0。
 - AI 提醒：高级模式，保存时立即创建 OpenClaw cron isolated agentTurn，到点由 OpenClaw Agent 处理并投递。
 
-本 Plan 只定义方案，不实现代码。
+状态：后端 Phase 已完成（2026-05-20）；前端 / 移动端待实现。
 
 ---
 
@@ -523,6 +523,24 @@ OpenClaw cron job: xxx
 ---
 
 ## 8. 实现范围
+
+后端实现状态：已完成。
+
+已落地内容：
+
+- 扩展 `Reminder` 模型、schema 和 Alembic migration。
+- 增加 `failed` / `disabled` 状态。
+- 增加 V1 服务导入层与 V1 task card builder。
+- 增加 V1/V2 统一提醒投递入口。
+- 增加 TaskCenter reminder worker，默认处理 `null` / V2 / V1。
+- 增加 OpenClaw cron adapter，AI 提醒保存时创建 cron，切换/取消/完成时 `cron rm`。
+- 增加 reminder 更新端点，用于模式切换和 AI prompt / 时间调整。
+- 接入 FastAPI lifespan 后台 worker loop，扫描间隔默认 30 秒且可配置。
+
+保留 TODO：
+
+- `openclaw cron add` stdout/job id 结构后续单独测试，目前只做 best-effort 解析。
+- 前端提醒设置 sheet 尚未实现。
 
 ### 8.1 后端
 

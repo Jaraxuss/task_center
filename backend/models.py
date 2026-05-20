@@ -145,6 +145,14 @@ class ReminderStatus(str, Enum):
     SCHEDULED = "scheduled"
     FIRED = "fired"
     CANCELED = "canceled"
+    FAILED = "failed"
+    DISABLED = "disabled"
+
+
+class ReminderDeliveryMode(str, Enum):
+    FEISHU_CARD_V2 = "feishu_card_v2"
+    FEISHU_CARD_V1 = "feishu_card_v1"
+    OPENCLAW_CRON_AGENT = "openclaw_cron_agent"
 
 
 class EventType(str, Enum):
@@ -310,6 +318,16 @@ class Reminder(Base):
     channel: Mapped[str] = mapped_column(String(32), nullable=False, default="local")
     status: Mapped[str] = mapped_column(String(32), nullable=False, default=ReminderStatus.SCHEDULED.value, index=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    delivery_mode: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    receive_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    receive_id_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    external_cron_job_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    message_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    request_uuid: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    fired_at: Mapped[datetime | None] = mapped_column(UTCDateTimeText(), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    ai_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTimeText(), nullable=False, default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTimeText(), nullable=False, default=now_utc, onupdate=now_utc)
 

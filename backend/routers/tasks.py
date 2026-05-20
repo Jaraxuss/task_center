@@ -13,6 +13,7 @@ from models import (
     CustomerMaterial,
     EventType,
     Reminder,
+    ReminderDeliveryMode,
     ReminderStatus,
     Task,
     TaskStatus,
@@ -20,6 +21,7 @@ from models import (
 from schemas import (
     CustomerMaterialRead,
     ReminderCreate,
+    ReminderUpdate,
     TaskActionCancel,
     TaskActionComplete,
     TaskActionDefer,
@@ -30,6 +32,7 @@ from schemas import (
     TaskUpdate,
 )
 from services.customer_materials import serialize_customer_material
+from services.openclaw_cron import OpenClawCronError, create_ai_reminder_job, remove_ai_reminder_job
 from services.tasks import (
     add_event,
     clear_recurrence,
@@ -40,11 +43,54 @@ from services.tasks import (
     serialize_task,
     task_detail_response,
     today_local,
+    unresolved_ai_reminders,
     upsert_recurrence,
 )
 from timeutils import local_day_bounds, now_utc
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
+
+
+def _create_openclaw_job_for_ai_reminder(db: Session, task: Task, reminder: Reminder) -> None:
+    if reminder.delivery_mode != ReminderDeliveryMode.OPENCLAW_CRON_AGENT.value:
+        return
+    try:
+        result = create_ai_reminder_job(reminder, task)
+    except OpenClawCronError as exc:
+        reminder.status = ReminderStatus.FAILED.value
+        reminder.last_error = str(exc)
+        add_event(
+            db,
+            task,
+            EventType.REMINDER_ADDED.value,
+            {"reminder_id": reminder.id, "delivery_mode": reminder.delivery_mode, "cron_error": str(exc)},
+        )
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    reminder.external_cron_job_id = result.job_id
+    reminder.last_error = None if result.job_id else "TODO: parse openclaw cron add job id from CLI output"
+
+
+def _remove_openclaw_job_for_reminder(db: Session, task: Task, reminder: Reminder) -> None:
+    if not reminder.external_cron_job_id:
+        return
+    try:
+        remove_ai_reminder_job(reminder.external_cron_job_id)
+    except OpenClawCronError as exc:
+        reminder.last_error = str(exc)
+        add_event(
+            db,
+            task,
+            EventType.REMINDER_ADDED.value,
+            {"reminder_id": reminder.id, "cron_remove_error": str(exc)},
+        )
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    reminder.external_cron_job_id = None
+
+
+def _cancel_scheduled_ai_reminders(db: Session, task: Task) -> None:
+    for reminder in unresolved_ai_reminders(task):
+        _remove_openclaw_job_for_reminder(db, task, reminder)
+        reminder.status = ReminderStatus.CANCELED.value
 
 
 @router.get("", response_model=list[TaskRead])
@@ -98,15 +144,20 @@ def create_task(payload: TaskCreate, db: Session = Depends(get_db)) -> TaskDetai
     db.add(task)
     db.flush()
     for reminder_payload in payload.reminders:
-        db.add(
-            Reminder(
-                task_id=task.id,
-                remind_at=reminder_payload.remind_at,
-                channel=reminder_payload.channel,
-                note=reminder_payload.note,
-                status=ReminderStatus.SCHEDULED.value,
-            )
+        reminder = Reminder(
+            task_id=task.id,
+            remind_at=reminder_payload.remind_at,
+            channel=reminder_payload.channel,
+            note=reminder_payload.note,
+            delivery_mode=reminder_payload.delivery_mode,
+            receive_id=reminder_payload.receive_id,
+            receive_id_type=reminder_payload.receive_id_type,
+            ai_prompt=reminder_payload.ai_prompt,
+            status=ReminderStatus.SCHEDULED.value,
         )
+        db.add(reminder)
+        db.flush()
+        _create_openclaw_job_for_ai_reminder(db, task, reminder)
     if payload.recurrence is not None:
         recurrence = upsert_recurrence(db, task, payload.recurrence)
         add_event(db, task, EventType.RECURRENCE_UPDATED.value, recurrence_event_payload(recurrence))
@@ -150,6 +201,8 @@ def update_task(task_id: int, payload: TaskUpdate, db: Session = Depends(get_db)
         task.completion_note = None
     if task.status != TaskStatus.CANCELED.value:
         task.canceled_at = None
+    if task.status in {TaskStatus.DONE.value, TaskStatus.CANCELED.value}:
+        _cancel_scheduled_ai_reminders(db, task)
     add_event(
         db,
         task,
@@ -184,6 +237,7 @@ def complete_task(task_id: int, payload: TaskActionComplete, db: Session = Depen
             task.status = TaskStatus.DONE.value
             task.completed_at = completed_at
             task.completion_note = completion_note
+            _cancel_scheduled_ai_reminders(db, task)
             add_event(db, task, EventType.STATUS_CHANGED.value, {"status": TaskStatus.DONE.value})
         else:
             previous_due_at = task.due_at
@@ -210,6 +264,7 @@ def complete_task(task_id: int, payload: TaskActionComplete, db: Session = Depen
         task.completed_at = completed_at
         task.completion_note = completion_note
         task.canceled_at = None
+        _cancel_scheduled_ai_reminders(db, task)
         add_event(db, task, EventType.STATUS_CHANGED.value, {"status": TaskStatus.DONE.value})
 
     db.commit()
@@ -240,6 +295,7 @@ def cancel_task(task_id: int, payload: TaskActionCancel, db: Session = Depends(g
     task.canceled_at = canceled_at
     task.completed_at = None
     task.completion_note = None
+    _cancel_scheduled_ai_reminders(db, task)
     add_event(
         db,
         task,
@@ -259,15 +315,59 @@ def create_reminder(task_id: int, payload: ReminderCreate, db: Session = Depends
         remind_at=payload.remind_at,
         channel=payload.channel,
         note=payload.note,
+        delivery_mode=payload.delivery_mode,
+        receive_id=payload.receive_id,
+        receive_id_type=payload.receive_id_type,
+        ai_prompt=payload.ai_prompt,
         status=ReminderStatus.SCHEDULED.value,
     )
     db.add(reminder)
     db.flush()
+    _create_openclaw_job_for_ai_reminder(db, task, reminder)
     add_event(
         db,
         task,
         EventType.REMINDER_ADDED.value,
         {"reminder_id": reminder.id, **payload.model_dump(mode="json")},
+    )
+    db.commit()
+    return task_detail_response(db, task_id)
+
+
+@router.patch("/{task_id}/reminders/{reminder_id}", response_model=TaskDetail)
+def update_reminder(
+    task_id: int,
+    reminder_id: int,
+    payload: ReminderUpdate,
+    db: Session = Depends(get_db),
+) -> TaskDetail:
+    task = get_task_or_404(db, task_id)
+    reminder = next((item for item in task.reminders if item.id == reminder_id), None)
+    if reminder is None:
+        raise HTTPException(status_code=404, detail="Reminder not found")
+
+    updates = payload.model_dump(exclude_unset=True)
+    previous_mode = reminder.delivery_mode
+    previous_job_id = reminder.external_cron_job_id
+
+    if previous_mode == ReminderDeliveryMode.OPENCLAW_CRON_AGENT.value and previous_job_id:
+        # First version keeps AI edits simple: remove old cron then recreate if needed.
+        _remove_openclaw_job_for_reminder(db, task, reminder)
+
+    for field, value in updates.items():
+        setattr(reminder, field, value)
+
+    reminder.status = ReminderStatus.SCHEDULED.value
+    reminder.message_id = None
+    reminder.fired_at = None
+    reminder.last_error = None
+
+    _create_openclaw_job_for_ai_reminder(db, task, reminder)
+    add_event(
+        db,
+        task,
+        EventType.REMINDER_ADDED.value,
+        {"reminder_id": reminder.id, "updated": updates},
     )
     db.commit()
     return task_detail_response(db, task_id)

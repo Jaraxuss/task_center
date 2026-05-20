@@ -15,7 +15,17 @@ from fastapi import HTTPException
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
 
-from models import EventType, Project, Reminder, ReminderStatus, Task, TaskEvent, TaskRecurrence, TaskStatus
+from models import (
+    EventType,
+    Project,
+    Reminder,
+    ReminderDeliveryMode,
+    ReminderStatus,
+    Task,
+    TaskEvent,
+    TaskRecurrence,
+    TaskStatus,
+)
 from recurrence import compute_next_recurrence, normalize_days_of_week, normalize_time_of_day
 from schemas import (
     ReminderRead,
@@ -283,14 +293,38 @@ def clear_recurrence(task: Task, db: Session) -> None:
 # ────────────────────────────────────────────────────────────────────
 
 
-def build_reminder(task: Task, *, remind_at: datetime, channel: str, note: str | None) -> Reminder:
+def build_reminder(
+    task: Task,
+    *,
+    remind_at: datetime,
+    channel: str,
+    note: str | None,
+    delivery_mode: str | None = None,
+    receive_id: str | None = None,
+    receive_id_type: str | None = None,
+    ai_prompt: str | None = None,
+) -> Reminder:
     return Reminder(
         task_id=task.id,
         remind_at=remind_at,
         channel=channel,
         note=note,
+        delivery_mode=delivery_mode,
+        receive_id=receive_id,
+        receive_id_type=receive_id_type,
+        ai_prompt=ai_prompt,
         status=ReminderStatus.SCHEDULED.value,
     )
+
+
+def unresolved_ai_reminders(task: Task) -> list[Reminder]:
+    return [
+        reminder
+        for reminder in task.reminders
+        if reminder.delivery_mode == ReminderDeliveryMode.OPENCLAW_CRON_AGENT.value
+        and reminder.status == ReminderStatus.SCHEDULED.value
+        and reminder.external_cron_job_id
+    ]
 
 
 # Re-export for routers that need the EventType enum without re-importing models.
@@ -311,5 +345,6 @@ __all__ = [
     "task_load_options",
     "task_schedule_at",
     "today_local",
+    "unresolved_ai_reminders",
     "upsert_recurrence",
 ]

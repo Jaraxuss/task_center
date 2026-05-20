@@ -25,6 +25,19 @@ class Settings:
     feishu_app_secret: str | None
     feishu_default_receive_id: str | None
     feishu_default_receive_id_type: str
+    reminder_worker_interval_seconds: int = 30
+    reminder_max_retries: int = 3
+
+
+def _int_env(name: str, default: int, *, minimum: int | None = None) -> int:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        value = default
+    else:
+        value = int(raw)
+    if minimum is not None:
+        return max(value, minimum)
+    return value
 
 
 def _split_csv(value: str | None) -> list[str]:
@@ -85,4 +98,6 @@ def get_settings() -> Settings:
         feishu_app_secret=os.getenv("TASK_CENTER_FEISHU_APP_SECRET") or os.getenv("FEISHU_APP_SECRET"),
         feishu_default_receive_id=os.getenv("TASK_CENTER_FEISHU_DEFAULT_RECEIVE_ID"),
         feishu_default_receive_id_type=os.getenv("TASK_CENTER_FEISHU_DEFAULT_RECEIVE_ID_TYPE", "open_id"),
+        reminder_worker_interval_seconds=_int_env("TASK_CENTER_REMINDER_WORKER_INTERVAL_SECONDS", 30, minimum=5),
+        reminder_max_retries=_int_env("TASK_CENTER_REMINDER_MAX_RETRIES", 3, minimum=1),
     )

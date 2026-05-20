@@ -6,8 +6,8 @@ from typing import Any
 
 from config import Settings
 from models import Project, Task
-from services.notification_delivery import send_task_card_v2, task_card_request_uuid
-from services.task_card_builder import build_task_card_v2, task_card_markdown
+from services.notification_delivery import send_task_card_v1, send_task_card_v2, task_card_request_uuid
+from services.task_card_builder import build_task_card_v1, build_task_card_v2, task_card_markdown
 
 
 def _settings() -> Settings:
@@ -81,6 +81,15 @@ def test_build_task_card_v2_returns_feishu_card() -> None:
     assert "task_center #156" in card["body"]["elements"][0]["content"]
 
 
+def test_build_task_card_v1_returns_fallback_feishu_card() -> None:
+    card = build_task_card_v1(_task())
+
+    assert "schema" not in card
+    assert card["header"]["title"]["content"] == "TaskCenter 提醒"
+    assert card["header"]["subtitle"]["content"] == "task_center #156"
+    assert "task_center #156" in card["elements"][0]["content"]
+
+
 def test_send_task_card_v2_dry_run_does_not_send() -> None:
     sender = FakeCardSender()
     result = send_task_card_v2(_task(), dry_run=True, settings=_settings(), client=sender)
@@ -107,3 +116,17 @@ def test_send_task_card_v2_sends_to_configured_open_id() -> None:
     assert call["receive_id_type"] == "open_id"
     assert call["uuid"] == task_card_request_uuid(task)
     assert "移动端手动触发" in call["card"]["body"]["elements"][0]["content"]
+
+
+def test_send_task_card_v1_sends_to_configured_open_id() -> None:
+    sender = FakeCardSender()
+    task = _task()
+    result = send_task_card_v1(task, note="兼容模式", settings=_settings(), client=sender)
+
+    assert result.status == "sent"
+    assert result.provider == "feishu_card_v1"
+    assert result.message_id == "om_test"
+    call = sender.calls[0]
+    assert call["receive_id"] == "ou_8ca37a28527b51fdad39a83998c37625"
+    assert call["receive_id_type"] == "open_id"
+    assert "兼容模式" in call["card"]["elements"][0]["content"]

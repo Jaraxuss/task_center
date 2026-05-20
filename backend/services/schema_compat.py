@@ -17,7 +17,7 @@ from timeutils import to_storage_string
 
 DATETIME_COLUMNS: dict[str, list[str]] = {
     "tasks": ["due_at", "created_at", "updated_at", "completed_at", "canceled_at", "deferred_to", "nightly_reviewed_at"],
-    "reminders": ["remind_at", "created_at", "updated_at"],
+    "reminders": ["remind_at", "fired_at", "created_at", "updated_at"],
     "task_recurrences": ["start_at", "end_at", "next_run_at", "last_run_at", "created_at", "updated_at"],
     "task_events": ["created_at"],
     "customer_materials": ["material_date", "created_at", "updated_at", "archived_at", "period_start", "period_end"],
@@ -56,6 +56,25 @@ def ensure_schema_compatibility() -> None:
             cur.execute("ALTER TABLE tasks ADD COLUMN project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL")
         if "source_type" not in task_columns:
             cur.execute("ALTER TABLE tasks ADD COLUMN source_type VARCHAR(32)")
+
+        # --- reminders: add delivery fields ---
+        cur.execute("PRAGMA table_info(reminders)")
+        reminder_columns = {row[1] for row in cur.fetchall()}
+        reminder_cols = {
+            "delivery_mode": "VARCHAR(32)",
+            "receive_id": "VARCHAR(128)",
+            "receive_id_type": "VARCHAR(32)",
+            "external_cron_job_id": "VARCHAR(128)",
+            "message_id": "VARCHAR(128)",
+            "request_uuid": "VARCHAR(128)",
+            "fired_at": "TEXT",
+            "last_error": "TEXT",
+            "retry_count": "INTEGER NOT NULL DEFAULT 0",
+            "ai_prompt": "TEXT",
+        }
+        for col_name, col_def in reminder_cols.items():
+            if col_name not in reminder_columns:
+                cur.execute(f"ALTER TABLE reminders ADD COLUMN {col_name} {col_def}")
 
         # --- board_preferences ---
         cur.execute("PRAGMA table_info(board_preference)")

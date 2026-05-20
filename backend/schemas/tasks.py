@@ -15,11 +15,29 @@ class ReminderCreate(BaseModel):
     remind_at: datetime
     channel: str = "local"
     note: str | None = None
+    delivery_mode: Literal["feishu_card_v2", "feishu_card_v1", "openclaw_cron_agent"] | None = None
+    receive_id: str | None = Field(default=None, max_length=128)
+    receive_id_type: Literal["open_id", "user_id", "union_id", "email", "chat_id"] | None = None
+    ai_prompt: str | None = None
 
     @field_validator("remind_at", mode="before")
     @classmethod
     def normalize_remind_at(cls, value: datetime | str | None) -> datetime | None:
         return normalize_datetime_input(value)
+
+    @field_validator("note", "receive_id", "ai_prompt", mode="before")
+    @classmethod
+    def normalize_optional_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
+
+    @model_validator(mode="after")
+    def validate_ai_prompt(self) -> "ReminderCreate":
+        if self.delivery_mode == "openclaw_cron_agent" and not self.ai_prompt:
+            raise ValueError("ai_prompt is required when delivery_mode is openclaw_cron_agent")
+        return self
 
 
 class ReminderRead(BaseModel):
@@ -29,10 +47,43 @@ class ReminderRead(BaseModel):
     channel: str
     status: str
     note: str | None
+    delivery_mode: str | None = None
+    receive_id: str | None = None
+    receive_id_type: str | None = None
+    external_cron_job_id: str | None = None
+    message_id: str | None = None
+    request_uuid: str | None = None
+    fired_at: datetime | None = None
+    last_error: str | None = None
+    retry_count: int = 0
+    ai_prompt: str | None = None
     created_at: datetime
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class ReminderUpdate(BaseModel):
+    remind_at: datetime | None = None
+    channel: str | None = None
+    note: str | None = None
+    delivery_mode: Literal["feishu_card_v2", "feishu_card_v1", "openclaw_cron_agent"] | None = None
+    receive_id: str | None = Field(default=None, max_length=128)
+    receive_id_type: Literal["open_id", "user_id", "union_id", "email", "chat_id"] | None = None
+    ai_prompt: str | None = None
+
+    @field_validator("remind_at", mode="before")
+    @classmethod
+    def normalize_remind_at(cls, value: datetime | str | None) -> datetime | None:
+        return normalize_datetime_input(value)
+
+    @field_validator("note", "receive_id", "ai_prompt", "channel", mode="before")
+    @classmethod
+    def normalize_optional_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
 
 
 class TaskRecurrenceBase(BaseModel):

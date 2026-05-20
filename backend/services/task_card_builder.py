@@ -6,6 +6,7 @@ from datetime import datetime
 
 from models import Task
 from services.feishu_card import text_to_card_v2
+from services.feishu_card_v1 import text_to_card_v1
 from timeutils import APP_TIMEZONE
 
 
@@ -63,4 +64,16 @@ def build_task_card_v2(task: Task, *, note: str | None = None) -> dict:
         subtitle=f"task_center #{task.id}",
         template="blue",
         summary=f"task_center #{task.id}: {task.title}",
+    )
+
+
+def build_task_card_v1(task: Task, *, note: str | None = None) -> dict:
+    """Build the fallback Feishu Card JSON 1.0 payload for a task."""
+
+    markdown = task_card_markdown(task, note=note)
+    return text_to_card_v1(
+        markdown,
+        title="TaskCenter 提醒",
+        subtitle=f"task_center #{task.id}",
+        template="blue",
     )
