@@ -347,6 +347,7 @@ def update_reminder(
         raise HTTPException(status_code=404, detail="Reminder not found")
 
     updates = payload.model_dump(exclude_unset=True)
+    event_updates = payload.model_dump(mode="json", exclude_unset=True)
     previous_mode = reminder.delivery_mode
     previous_job_id = reminder.external_cron_job_id
 
@@ -367,7 +368,7 @@ def update_reminder(
         db,
         task,
         EventType.REMINDER_ADDED.value,
-        {"reminder_id": reminder.id, "updated": updates},
+        {"reminder_id": reminder.id, "updated": event_updates},
     )
     db.commit()
     return task_detail_response(db, task_id)

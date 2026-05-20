@@ -200,6 +200,35 @@ def test_switch_ai_reminder_to_v2_removes_cron(monkeypatch, api_client: TestClie
     assert response.json()["reminders"][0]["external_cron_job_id"] is None
 
 
+def test_update_card_reminder_serializes_event_payload(api_client: TestClient) -> None:
+    created = _create_task(
+        api_client,
+        reminders=[{"remind_at": _iso(datetime.now(timezone.utc) + timedelta(hours=1))}],
+    )
+    reminder_id = created["reminders"][0]["id"]
+    response = api_client.patch(
+        f"/api/tasks/{created['id']}/reminders/{reminder_id}",
+        json={
+            "remind_at": "2026-05-20T21:59:00.000Z",
+            "channel": "feishu",
+            "note": "提醒：测试消息，10 分钟后开会。",
+            "delivery_mode": "feishu_card_v2",
+            "receive_id": "ou_8ca37a28527b51fdad39a83998c37625",
+            "receive_id_type": "open_id",
+            "ai_prompt": None,
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    reminder = body["reminders"][0]
+    assert reminder["delivery_mode"] == "feishu_card_v2"
+    assert reminder["receive_id"] == "ou_8ca37a28527b51fdad39a83998c37625"
+    update_events = [event for event in body["events"] if event["event_type"] == "reminder_added"]
+    assert update_events
+    assert update_events[0]["payload"]["updated"]["remind_at"] == "2026-05-20T21:59:00Z"
+
+
 def test_cancel_task_removes_pending_ai_cron(monkeypatch, api_client: TestClient) -> None:
     removed: list[str] = []
 
