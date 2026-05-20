@@ -6,7 +6,7 @@ from typing import Any
 
 from config import Settings
 from models import Project, Task
-from services.notification_delivery import send_task_card_v1, send_task_card_v2, task_card_request_uuid
+from services.notification_delivery import reminder_target, send_task_card_v1, send_task_card_v2, task_card_request_uuid
 from services.task_card_builder import build_task_card_v1, build_task_card_v2, task_card_markdown
 
 
@@ -37,6 +37,12 @@ def _task() -> Task:
     task.updated_at = datetime(2026, 5, 19, 1, 2, 3, tzinfo=timezone.utc)
     task.project_rel = Project(id=1, name="雷允上药业")
     return task
+
+
+def _reminder(receive_id: str | None = None):
+    from models import Reminder
+
+    return Reminder(task_id=156, remind_at=datetime(2026, 5, 19, 1, 0, tzinfo=timezone.utc), receive_id=receive_id)
 
 
 class FakeCardSender:
@@ -130,3 +136,22 @@ def test_send_task_card_v1_sends_to_configured_open_id() -> None:
     assert call["receive_id"] == "ou_8ca37a28527b51fdad39a83998c37625"
     assert call["receive_id_type"] == "open_id"
     assert "兼容模式" in call["card"]["elements"][0]["content"]
+
+
+def test_reminder_target_uses_per_reminder_receive_id_without_default() -> None:
+    settings = _settings()
+    settings = Settings(**{**settings.__dict__, "feishu_default_receive_id": None})
+
+    assert reminder_target(_reminder("ou_custom"), settings) == ("ou_custom", "open_id")
+
+
+def test_reminder_target_requires_receive_id_when_no_default() -> None:
+    settings = _settings()
+    settings = Settings(**{**settings.__dict__, "feishu_default_receive_id": None})
+
+    try:
+        reminder_target(_reminder(), settings)
+    except ValueError as exc:
+        assert "Reminder receive_id is required" in str(exc)
+    else:
+        raise AssertionError("expected ValueError")

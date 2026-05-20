@@ -58,6 +58,8 @@ def reminder_target(
 ) -> tuple[str, str]:
     if reminder.receive_id:
         return (reminder.receive_id, reminder.receive_id_type or "open_id")
+    if not settings.feishu_default_receive_id:
+        raise ValueError("Reminder receive_id is required when TASK_CENTER_FEISHU_DEFAULT_RECEIVE_ID is not set")
     default_target = FeishuTarget.from_settings(settings)
     return (
         default_target.receive_id,

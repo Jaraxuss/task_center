@@ -14,6 +14,33 @@ DEFAULT_CORS_ORIGINS = [
 ]
 
 
+def _load_dotenv() -> dict[str, str]:
+    env_path = BACKEND_DIR / ".env"
+    if not env_path.exists():
+        return {}
+    values: dict[str, str] = {}
+    for raw_line in env_path.read_text().splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key:
+            values[key] = value
+    return values
+
+
+_DOTENV = _load_dotenv()
+
+
+def _env(name: str, default: str | None = None) -> str | None:
+    value = os.getenv(name)
+    if value is not None:
+        return value
+    return _DOTENV.get(name, default)
+
+
 @dataclass(frozen=True)
 class Settings:
     api_host: str
@@ -30,7 +57,7 @@ class Settings:
 
 
 def _int_env(name: str, default: int, *, minimum: int | None = None) -> int:
-    raw = os.getenv(name)
+    raw = _env(name)
     if raw is None or not raw.strip():
         value = default
     else:
@@ -79,12 +106,12 @@ def _resolve_database(env_path: str | None, env_url: str | None) -> tuple[Path, 
 
 
 def get_settings() -> Settings:
-    api_host = os.getenv("TASK_CENTER_API_HOST", "0.0.0.0").strip() or "0.0.0.0"
-    api_port = int(os.getenv("TASK_CENTER_API_PORT", "8000"))
-    cors_origins = _split_csv(os.getenv("TASK_CENTER_CORS_ORIGINS")) or DEFAULT_CORS_ORIGINS
+    api_host = (_env("TASK_CENTER_API_HOST", "0.0.0.0") or "0.0.0.0").strip() or "0.0.0.0"
+    api_port = int(_env("TASK_CENTER_API_PORT", "8000") or "8000")
+    cors_origins = _split_csv(_env("TASK_CENTER_CORS_ORIGINS")) or DEFAULT_CORS_ORIGINS
     database_path, database_url = _resolve_database(
-        env_path=os.getenv("TASK_CENTER_DATABASE_PATH"),
-        env_url=os.getenv("TASK_CENTER_DATABASE_URL"),
+        env_path=_env("TASK_CENTER_DATABASE_PATH"),
+        env_url=_env("TASK_CENTER_DATABASE_URL"),
     )
     return Settings(
         api_host=api_host,
@@ -94,10 +121,10 @@ def get_settings() -> Settings:
         database_url=database_url,
         # Prefer TaskCenter-scoped names, but keep FEISHU_* as a convenient
         # compatibility fallback for existing local scripts.
-        feishu_app_id=os.getenv("TASK_CENTER_FEISHU_APP_ID") or os.getenv("FEISHU_APP_ID"),
-        feishu_app_secret=os.getenv("TASK_CENTER_FEISHU_APP_SECRET") or os.getenv("FEISHU_APP_SECRET"),
-        feishu_default_receive_id=os.getenv("TASK_CENTER_FEISHU_DEFAULT_RECEIVE_ID"),
-        feishu_default_receive_id_type=os.getenv("TASK_CENTER_FEISHU_DEFAULT_RECEIVE_ID_TYPE", "open_id"),
+        feishu_app_id=_env("TASK_CENTER_FEISHU_APP_ID") or _env("FEISHU_APP_ID"),
+        feishu_app_secret=_env("TASK_CENTER_FEISHU_APP_SECRET") or _env("FEISHU_APP_SECRET"),
+        feishu_default_receive_id=_env("TASK_CENTER_FEISHU_DEFAULT_RECEIVE_ID"),
+        feishu_default_receive_id_type=_env("TASK_CENTER_FEISHU_DEFAULT_RECEIVE_ID_TYPE", "open_id") or "open_id",
         reminder_worker_interval_seconds=_int_env("TASK_CENTER_REMINDER_WORKER_INTERVAL_SECONDS", 30, minimum=5),
         reminder_max_retries=_int_env("TASK_CENTER_REMINDER_MAX_RETRIES", 3, minimum=1),
     )
