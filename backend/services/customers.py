@@ -16,6 +16,7 @@ def serialize_customer(customer: Customer) -> CustomerRead:
         description=customer.description,
         area=customer.area,
         tags=customer.tags or [],
+        nblm_notebook_id=customer.nblm_notebook_id,
         created_at=customer.created_at,
         updated_at=customer.updated_at,
     )
