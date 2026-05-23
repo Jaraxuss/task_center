@@ -208,6 +208,7 @@ class Customer(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     area: Mapped[str | None] = mapped_column(String(128), nullable=True)
     tags: Mapped[list[str]] = mapped_column("tags_json", JSONText, nullable=False, default=list)
+    nblm_notebook_id: Mapped[str | None] = mapped_column(String(64), nullable=True, default=None)
     created_at: Mapped[datetime] = mapped_column(UTCDateTimeText(), nullable=False, default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTimeText(), nullable=False, default=now_utc, onupdate=now_utc)
 

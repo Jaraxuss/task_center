@@ -16,6 +16,7 @@ class CustomerCreate(BaseModel):
     description: str | None = None
     area: str | None = Field(default=None, max_length=128)
     tags: list[str] = Field(default_factory=list)
+    nblm_notebook_id: str | None = Field(default=None, max_length=64)
 
     @field_validator("name", mode="before")
     @classmethod
@@ -52,6 +53,7 @@ class CustomerUpdate(BaseModel):
     description: str | None = None
     area: str | None = Field(default=None, max_length=128)
     tags: list[str] | None = None
+    nblm_notebook_id: str | None = Field(default=None, max_length=64)
 
     @field_validator("name", mode="before")
     @classmethod
@@ -93,5 +95,6 @@ class CustomerRead(BaseModel):
     description: str | None
     area: str | None
     tags: list[str]
+    nblm_notebook_id: str | None
     created_at: datetime
     updated_at: datetime
