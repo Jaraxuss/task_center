@@ -1,0 +1,51 @@
+name: Bug report
+description: Report a reproducible problem in TaskCenter.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Please remove real customer data, credentials, user IDs, and production logs before submitting.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What went wrong?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: List the smallest steps that reproduce the issue.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: checkboxes
+    id: impact
+    attributes:
+      label: Impact area
+      options:
+        - label: This affects task or reminder time semantics.
+        - label: This affects reminder delivery or external messaging.
+        - label: This affects customer context, facts, or materials.
+        - label: This affects audit events or history.
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: I removed real customer data, tokens, secrets, open_id values, and production logs.
+          required: true
