@@ -1,7 +1,7 @@
 # 后端工程化 Phase 0 + Phase 1（2026-05-06 起，含 Phase 1.A 已完成 / Phase 1.B 进行中）
 
 创建时间：2026-05-07（倒序落档；2026-05-07 下午校准为 Phase 1.A / 1.B 两阶段记法）
-负责人：南哥 / Cascade
+负责人：task owner / Cascade
 
 ## Phase 1 完整范围（按最初计划）
 

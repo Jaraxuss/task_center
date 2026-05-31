@@ -19,7 +19,7 @@ def _settings() -> Settings:
         database_url="sqlite:///:memory:",
         feishu_app_id="cli_test",
         feishu_app_secret="secret",
-        feishu_default_receive_id="ou_8ca37a28527b51fdad39a83998c37625",
+        feishu_default_receive_id="ou_example_user",
         feishu_default_receive_id_type="open_id",
     )
 
@@ -28,14 +28,14 @@ def _task() -> Task:
     task = Task(
         id=156,
         title="让朱老师填写私有云部署前信息问卷",
-        description="雷允上药业私有云部署申请已提交；下一步需要引导客户朱老师填写部署前信息问卷。",
+        description="Acme Corp私有云部署申请已提交；下一步需要引导客户朱老师填写部署前信息问卷。",
         due_at=datetime(2026, 5, 19, 11, 30, tzinfo=timezone.utc),
         status="todo",
         area="上海",
         source="test",
     )
     task.updated_at = datetime(2026, 5, 19, 1, 2, 3, tzinfo=timezone.utc)
-    task.project_rel = Project(id=1, name="雷允上药业")
+    task.project_rel = Project(id=1, name="Acme Corp")
     return task
 
 
@@ -74,7 +74,7 @@ def test_task_card_markdown_contains_task_context() -> None:
     assert "task_center #156" in markdown
     assert "让朱老师填写私有云部署前信息问卷" in markdown
     assert "2026-05-19 19:30" in markdown
-    assert "雷允上药业" in markdown
+    assert "Acme Corp" in markdown
     assert "请今天处理" in markdown
 
 
@@ -118,7 +118,7 @@ def test_send_task_card_v2_sends_to_configured_open_id() -> None:
     assert result.request_uuid == task_card_request_uuid(task)
     assert len(sender.calls) == 1
     call = sender.calls[0]
-    assert call["receive_id"] == "ou_8ca37a28527b51fdad39a83998c37625"
+    assert call["receive_id"] == "ou_example_user"
     assert call["receive_id_type"] == "open_id"
     assert call["uuid"] == task_card_request_uuid(task)
     assert "移动端手动触发" in call["card"]["body"]["elements"][0]["content"]
@@ -133,7 +133,7 @@ def test_send_task_card_v1_sends_to_configured_open_id() -> None:
     assert result.provider == "feishu_card_v1"
     assert result.message_id == "om_test"
     call = sender.calls[0]
-    assert call["receive_id"] == "ou_8ca37a28527b51fdad39a83998c37625"
+    assert call["receive_id"] == "ou_example_user"
     assert call["receive_id_type"] == "open_id"
     assert "兼容模式" in call["card"]["elements"][0]["content"]
 

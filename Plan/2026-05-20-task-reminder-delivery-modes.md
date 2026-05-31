@@ -1,7 +1,7 @@
 # Task 提醒投递模式与调度方案（2026-05-20）
 
 创建时间：2026-05-20  
-负责人：南哥 / OpenCode
+负责人：task owner / OpenCode
 
 ## 目标
 
@@ -492,7 +492,7 @@ AI 提醒：保存后立即创建 OpenClaw 定时 Agent 任务，到点由 Agent
 ```text
 你是 TaskCenter 定时提醒助手。
 
-请在到点后发送一条简洁中文提醒给南哥。不要扩写，不要引入额外事实。
+请在到点后发送一条简洁中文提醒给task owner。不要扩写，不要引入额外事实。
 
 任务信息：
 - task_center #<id>

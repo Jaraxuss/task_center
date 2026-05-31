@@ -41,53 +41,53 @@ def main():
 
     try:
         # 1. Update aliases
-        # 童方元 (31): + 南京童方元
-        update_aliases(cursor, 31, add_aliases=["南京童方元"])
+        # 客户_D (31): + 客户_D Alias
+        update_aliases(cursor, 31, add_aliases=["客户_D Alias"])
         
-        # 江苏润天医药 (28): + 江苏润天, 润天
-        update_aliases(cursor, 28, add_aliases=["江苏润天", "润天"])
+        # 客户_A (28): + 客户_A, 客户_A
+        update_aliases(cursor, 28, add_aliases=["客户_A", "客户_A"])
         
-        # 无锡公安 (23): + 无锡GA
-        update_aliases(cursor, 23, add_aliases=["无锡GA"])
+        # 客户_C (23): + 客户_C
+        update_aliases(cursor, 23, add_aliases=["客户_C"])
         
-        # 常熟公安 (19): + 常熟GA
-        update_aliases(cursor, 19, add_aliases=["常熟GA"])
+        # 客户_C (19): + 客户_C
+        update_aliases(cursor, 19, add_aliases=["客户_C"])
         
-        # 华孚 (12): + 马鞍山华孚, 华孚精密
-        update_aliases(cursor, 12, add_aliases=["马鞍山华孚", "华孚精密"])
+        # 客户_E (12): + 客户_E Alias A, 客户_E Alias B
+        update_aliases(cursor, 12, add_aliases=["客户_E Alias A", "客户_E Alias B"])
         
-        # 欧裳妮 (26): + 上海欧裳妮
-        update_aliases(cursor, 26, add_aliases=["上海欧裳妮"])
+        # 客户_F (26): + 客户_F Alias
+        update_aliases(cursor, 26, add_aliases=["客户_F Alias"])
         
-        # 正大天晴 (27): + 南京正大天晴
-        update_aliases(cursor, 27, add_aliases=["南京正大天晴"])
+        # 客户_G (27): + 客户_G Alias
+        update_aliases(cursor, 27, add_aliases=["客户_G Alias"])
         
-        # 麦豆健康 (35): + 南京麦豆健康
-        update_aliases(cursor, 35, add_aliases=["南京麦豆健康"])
+        # 客户_H (35): + 客户_H Alias
+        update_aliases(cursor, 35, add_aliases=["客户_H Alias"])
         
-        # 南京初藜 (13): + 瑞纹娜
-        update_aliases(cursor, 13, add_aliases=["瑞纹娜"])
+        # 客户_I (13): + 客户_I Alias
+        update_aliases(cursor, 13, add_aliases=["客户_I Alias"])
         
-        # 途牛科技 (8): + 南京途牛, 途牛
-        update_aliases(cursor, 8, add_aliases=["南京途牛", "途牛"])
+        # 客户_J (8): + 客户_J Alias A, 客户_J Alias B
+        update_aliases(cursor, 8, add_aliases=["客户_J Alias A", "客户_J Alias B"])
         
-        # 苏中药业 (3): - 黄葵, 黄葵胶囊
-        update_aliases(cursor, 3, remove_aliases=["黄葵", "黄葵胶囊"])
+        # 客户_K (3): - 客户_K Alias A, 客户_K Alias B
+        update_aliases(cursor, 3, remove_aliases=["客户_K Alias A", "客户_K Alias B"])
 
         # 2. Merges
-        # 29-江苏润天医药-电商 -> 28-江苏润天医药
+        # 29-客户_A -> 28-客户_A
         print("Merging 29 -> 28")
         merge_customers(cursor, 29, 28)
         
-        # 15-喵婉美 -> 4-无锡喵婉美
+        # 15-客户_B -> 4-客户_B
         print("Merging 15 -> 4")
         merge_customers(cursor, 15, 4)
         
-        # 22-无锡GA -> 23-无锡公安
+        # 22-客户_C -> 23-客户_C
         print("Merging 22 -> 23")
         merge_customers(cursor, 22, 23)
         
-        # 17-常熟GA -> 19-常熟公安
+        # 17-客户_C -> 19-客户_C
         print("Merging 17 -> 19")
         merge_customers(cursor, 17, 19)
 

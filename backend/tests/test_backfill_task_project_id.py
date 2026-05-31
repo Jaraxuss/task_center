@@ -59,8 +59,8 @@ class TestBackfillMatch:
         from scripts.backfill_task_project_id import backfill
 
         customer = _make_customer(db_session, "Acme")
-        project = _make_project(db_session, "客户_Acme", customer_id=customer.id, area="customer")
-        task = _make_task(db_session, "Follow up", project="客户_Acme", customer_id=customer.id)
+        project = _make_project(db_session, "客户_A", customer_id=customer.id, area="customer")
+        task = _make_task(db_session, "Follow up", project="客户_A", customer_id=customer.id)
         db_session.commit()
 
         report = backfill(db_session, apply=True)
@@ -78,7 +78,7 @@ class TestBackfillCreate:
         from scripts.backfill_task_project_id import backfill
 
         customer = _make_customer(db_session, "NewCo", area="customer")
-        task = _make_task(db_session, "Onboarding", project="客户_NewCo", customer_id=customer.id)
+        task = _make_task(db_session, "Onboarding", project="客户_A", customer_id=customer.id)
         db_session.commit()
 
         report = backfill(db_session, apply=True)
@@ -91,7 +91,7 @@ class TestBackfillCreate:
         # Verify the newly created project
         new_project = db_session.get(Project, task.project_id)
         assert new_project is not None
-        assert new_project.name == "客户_NewCo"
+        assert new_project.name == "客户_A"
         assert new_project.customer_id == customer.id
         assert new_project.area == "customer"
 
@@ -124,8 +124,8 @@ class TestBackfillSkips:
         from scripts.backfill_task_project_id import backfill
 
         customer = _make_customer(db_session, "Existing")
-        project = _make_project(db_session, "客户_Existing", customer_id=customer.id)
-        task = _make_task(db_session, "Already linked", project="客户_Existing",
+        project = _make_project(db_session, "客户_A", customer_id=customer.id)
+        task = _make_task(db_session, "Already linked", project="客户_A",
                           customer_id=customer.id, project_id=project.id)
         db_session.commit()
 
@@ -139,7 +139,7 @@ class TestBackfillSkips:
         from scripts.backfill_task_project_id import backfill
 
         customer = _make_customer(db_session, "DryRunCo")
-        task = _make_task(db_session, "Dry run test", project="客户_DryRunCo", customer_id=customer.id)
+        task = _make_task(db_session, "Dry run test", project="客户_A", customer_id=customer.id)
         db_session.commit()
 
         report = backfill(db_session, apply=False)

@@ -62,7 +62,7 @@ client = FeishuCardClient.from_settings(settings)
 target = FeishuTarget.from_settings(settings)
 
 card = text_to_card_v2(
-    "提醒：晚上 7:30 走同程续费 + 增购合同报价清单流程。",
+    "提醒：晚上 7:30 走Example Customer续费 + 增购合同报价清单流程。",
     title="TaskCenter 提醒",
     template="blue",
 )

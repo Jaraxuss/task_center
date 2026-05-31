@@ -18,7 +18,7 @@ from sqlalchemy.orm import selectinload  # noqa: E402
 from db import SessionLocal  # noqa: E402
 from models import Task  # noqa: E402
 
-EXCLUDED_PROJECTS = {"生活", "闲鱼", "影刀6.0灰度"}
+EXCLUDED_PROJECTS = {"生活", "闲鱼", "Example_Project_Beta"}
 CUSTOMER_PREFIX = "客户_"
 CUSTOMER_TAG = "客户"
 

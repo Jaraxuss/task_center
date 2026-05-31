@@ -1,7 +1,7 @@
 # 移动端任务详情接入客户事实 + 看板按客户分组重命名（2026-05-06 Phase 3）
 
 创建时间：2026-05-06
-负责人：南哥 / OpenClaw main / Cascade
+负责人：task owner / OpenClaw main / Cascade
 父 Plan：`Plan/2026-05-04-material-cleanup-and-mobile-knowledge.md`
 
 目标（按用户原话拆解）：

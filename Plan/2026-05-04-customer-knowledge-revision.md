@@ -1,7 +1,7 @@
 # TaskCenter 客户知识链路修订计划（2026-05-04）
 
 创建时间：2026-05-04
-负责人：南哥 / OpenClaw main / Cascade
+负责人：task owner / OpenClaw main / Cascade
 目标：在 2026-05-03 已落地的 5 表架构（customers / projects / facts / customer_materials / review_batches / customer_material_facts）和 v1/v2 收口基础上，把"周期客户材料生成"和"事实写入"两条核心链路从"靠主代理 LLM 实时判断"改为"确定性脚本 + SKILL 硬约定"，从根本上解决：
 - 周期 cron agentTurn 在客户/事实量上来后必然超时；
 - 主代理对 fact 是否要写、写成什么内容的判断每次不一致，导致 NotebookLM 客户画像质量随机。
@@ -38,11 +38,11 @@
 - 执行：Python 脚本，**不调 LLM、不走 agentTurn**。
 - 内容：拉本周 `confirmed` facts → 按 `customer_id + project_id` 分组 → 建 `review_batch` → 为每组建一份 `customer_material`，只填 `raw_facts_markdown`，`summary_markdown` / `insights_markdown` 留空 → 建 `customer_material_facts` 关联。
 - 一致性检查：脚本退出前扫本周 `tasks.source_type ∈ {forwarded_message, screenshot, meeting_note}` 但**无关联 fact** 的 task，作为 warning 列入通知。
-- 通知：飞书消息只发"batch_id + 每份 material 的 id/客户/项目 + warning 列表"，**不发全文**，让南哥到 TaskCenter 移动端审核。
+- 通知：飞书消息只发"batch_id + 每份 material 的 id/客户/项目 + warning 列表"，**不发全文**，让task owner到 TaskCenter 移动端审核。
 
 ### 1.2 上传链路
 
-- 南哥审核完成后，飞书回复格式：`审核完成 #A #B #C`（或 `审核完成 batch #N` 表示该批所有 approved 的）。
+- task owner审核完成后，飞书回复格式：`审核完成 #A #B #C`（或 `审核完成 batch #N` 表示该批所有 approved 的）。
 - OpenClaw 主代理：
   1. 按 id 列表读 customer_materials。
   2. 过滤 `status='approved'`，跳过其他状态并简短报告跳过原因。
@@ -56,7 +56,7 @@
 
   4. 调 nblm Skill 上传到对应客户 NotebookLM。
   5. `POST /api/customer-materials/{id}/mark-uploaded`。
-  6. 回报南哥每份 material 上传成败。
+  6. 回报task owner每份 material 上传成败。
 
 ### 1.3 Fact 写入链路
 
@@ -151,7 +151,7 @@ timeoutSeconds: 60    # 脚本应在 5~10 秒内完成；60 秒留充足 buffer
 notify_on_finish: true
 ```
 
-执行完毕后，由 OpenClaw 主代理通过现有飞书通知机制把脚本输出（JSON）转换为人类可读消息发给南哥。
+执行完毕后，由 OpenClaw 主代理通过现有飞书通知机制把脚本输出（JSON）转换为人类可读消息发给task owner。
 
 ### 4.3 脚本骨架
 
@@ -308,7 +308,7 @@ if __name__ == "__main__":
 主代理收到 cron 完成事件后，读 stdout 的 JSON，转人类可读消息：
 
 ```
-南哥，本周客户材料已生成，待审核：
+task owner，本周客户材料已生成，待审核：
 - batch #{batch_id}（{period_start} ~ {period_end}）
 - 共 N 份 material：
   - #{id} {customer}｜{project}（{fact_count} 条事实）
@@ -472,7 +472,7 @@ if __name__ == "__main__":
 
 - 等三个子代理收口后，统一验收（执行第 8 节验收清单）。
 - git commit。
-- 通知南哥下周日 20:00 自动触发，可端到端验证。
+- 通知task owner下周日 20:00 自动触发，可端到端验证。
 
 ---
 
@@ -515,9 +515,9 @@ if __name__ == "__main__":
 ### 8.6 端到端（下周日自动验证）
 
 - [ ] 周日 20:00 cron 自动触发，5~30 秒内完成。
-- [ ] 飞书收到南哥通知，含 batch_id 和 material id 列表。
-- [ ] 南哥在移动端审核 1 份 material（修一处错别字 + PATCH approved）。
-- [ ] 南哥飞书回复 "审核完成 #N"。
+- [ ] 飞书收到task owner通知，含 batch_id 和 material id 列表。
+- [ ] task owner在移动端审核 1 份 material（修一处错别字 + PATCH approved）。
+- [ ] task owner飞书回复 "审核完成 #N"。
 - [ ] 主代理拼 markdown、调 nblm 上传、`POST /mark-uploaded` 成功。
 - [ ] material status 在审核页显示为 `uploaded`。
 
@@ -555,7 +555,7 @@ if __name__ == "__main__":
 风险：测试期残留的 material（如 5/3 20:41 的"测试客户"批次、5/4 09:11 的临时验证 batch）混入未来周期。
 
 处理：
-- 实施前由南哥手动在审核页归档（`archived_at` 非空）这些测试 material 和对应 batch。
+- 实施前由task owner手动在审核页归档（`archived_at` 非空）这些测试 material 和对应 batch。
 - 脚本不要重新读已归档的旧 fact。
 
 ### 10.3 客户/项目元数据缺失
@@ -572,7 +572,7 @@ if __name__ == "__main__":
 
 处理：
 - 脚本捕获 `urllib.error.URLError`，向 stderr 打印明确错误，退出码非零。
-- OpenClaw cron 失败通知会送达南哥。
+- OpenClaw cron 失败通知会送达task owner。
 - 不试图自动重启服务。
 
 ### 10.5 source_type 标签未来扩展
@@ -591,9 +591,9 @@ if __name__ == "__main__":
 2. R2 SKILL + 文档（与 R1 并行可，但 SKILL 中字段名以 R1 落定为准）。
 3. R3 移动端 + cron 配置（R1 完成后启动，确保字段已上线）。
 4. 主代理统一验收 + git commit。
-5. 南哥手动跑一次脚本（不通过 cron，直接命令行）端到端确认。
+5. task owner手动跑一次脚本（不通过 cron，直接命令行）端到端确认。
 6. 周日 20:00 等自动触发，做 8.6 端到端验证。
 
 ---
 
-（本文件由 Cascade 起草，2026-05-04，根据南哥与 Cascade 当日讨论结果写成。原 2026-05-03 两份 plan 中被本次修订替换的条目以本文件为准。）
+（本文件由 Cascade 起草，2026-05-04，根据task owner与 Cascade 当日讨论结果写成。原 2026-05-03 两份 plan 中被本次修订替换的条目以本文件为准。）
