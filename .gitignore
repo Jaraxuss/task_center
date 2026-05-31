@@ -1,21 +1,53 @@
+# Dependencies
+node_modules/
+*/node_modules/
+archive/frontend/node_modules/
+mobile_frontend/node_modules/
 frontend/node_modules/
+
+# Build outputs
+dist/
+*/dist/
+archive/frontend/dist/
+mobile_frontend/dist/
 frontend/dist/
-backend/.venv/
-backend/data/
-backend/.env
-# Python bytecode caches (any depth)
+
+# Python
 __pycache__/
 *.pyc
 *.pyo
-# Tool caches
+.venv/
+*/.venv/
 backend/.mypy_cache/
 backend/.pytest_cache/
 backend/.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Runtime data
+backend/data/
+backend/logs/
+*.db
+*.sqlite
+*.sqlite3
+*.log
+*.bak
+
+# Env / local config
+.env
+.env.*
+!.env.example
+backend/.env
+frontend/.env
+
+# Legacy frontend local files
 frontend/.vite/
 frontend/.codex/
-frontend/.env
 frontend/*.tsbuildinfo
-backend/logs/
 frontend/logs/
+
+# OS / editor
 .DS_Store
-.vscode
+.vscode/
+.idea/
