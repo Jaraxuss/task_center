@@ -15,7 +15,7 @@
 - 不修改第三方 `nblm` Skill：它属于基础能力，只在新 Skill 中调用/遵循它的上传链路。
 - 暂不修改晚间收口 cron：后续再设计。
 - 不在 TaskCenter 中保存 NotebookLM 目标信息或外部上传引用。
-- 不给 TaskCenter 配 LLM / NotebookLM API Key。审核完成后的上传由南哥告诉我触发，由 OpenClaw agent 使用 nblm 链路执行。
+- 不给 TaskCenter 配 LLM / NotebookLM API Key。审核完成后的上传由task owner告诉我触发，由 OpenClaw agent 使用 nblm 链路执行。
 
 ### 0.2 要改的部分
 
@@ -45,7 +45,7 @@
   ↓
 审核页展示/修改/通过/跳过
   ↓
-南哥告诉我上传
+task owner告诉我上传
   ↓
 我调用 nblm 链路上传到 NotebookLM
   ↓
@@ -93,10 +93,10 @@ NotebookLM
 | `id` | integer PK | 客户唯一 ID。 |
 | `name` | string(128) | 客户显示名称，例如 `佰世赛`。用于页面展示、搜索、NotebookLM 名称匹配。 |
 | `key` | string(64), nullable/unique 建议 | 稳定标识，例如 `baishisai`。用于去重、程序引用、避免重名客户。若实现复杂，可先允许为空。 |
-| `aliases_json` | text JSON array | 客户别名，如 `["客户_佰世赛", "BSS"]`。用于兼容旧 `tasks.project` 和口语叫法。 |
+| `aliases_json` | text JSON array | 客户别名，如 `["客户_A", "BSS"]`。用于兼容旧 `tasks.project` 和口语叫法。 |
 | `status` | string(32) | 客户状态：`active` / `paused` / `closed`。默认 `active`。 |
 | `description` | text nullable | 客户补充说明。 |
-| `area` | string(128) nullable | 默认归属分类，如 `客户_佰世赛`。用于任务看板和旧数据兼容。 |
+| `area` | string(128) nullable | 默认归属分类，如 `客户_A`。用于任务看板和旧数据兼容。 |
 | `tags_json` | text JSON array | 客户标签。 |
 | `created_at` | datetime | 创建时间。 |
 | `updated_at` | datetime | 更新时间。 |
@@ -375,7 +375,7 @@ payload：isolated `agentTurn`。
 3. 生成 review_batch；
 4. 为每组 facts 生成 customer_materials，status=pending；
 5. 建立 customer_material_facts 关联；
-6. 只向南哥简短通知生成了多少份待审核材料，不输出全文。
+6. 只向task owner简短通知生成了多少份待审核材料，不输出全文。
 ```
 
 ### 5.2 审核后上传触发
@@ -385,9 +385,9 @@ payload：isolated `agentTurn`。
 流程：
 
 ```text
-南哥在审核页审核完成
+task owner在审核页审核完成
   ↓
-南哥告诉我“上传本周客户材料”或指定 material/batch
+task owner告诉我“上传本周客户材料”或指定 material/batch
   ↓
 我读取 approved customer_materials
   ↓

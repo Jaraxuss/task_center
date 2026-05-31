@@ -84,12 +84,12 @@ openclaw message send \
   --message "消息内容"
 ```
 
-#### 当前南哥 DM 的常用目标
+#### 当前task owner DM 的常用目标
 
-南哥的 Feishu open_id：
+task owner的 Feishu open_id：
 
 ```text
-ou_8ca37a28527b51fdad39a83998c37625
+ou_example_user
 ```
 
 直发示例：
@@ -97,7 +97,7 @@ ou_8ca37a28527b51fdad39a83998c37625
 ```bash
 openclaw message send \
   --channel feishu \
-  --target user:ou_8ca37a28527b51fdad39a83998c37625 \
+  --target user:ou_example_user \
   --message "测试：OpenClaw 能否通过飞书直接发送"
 ```
 
@@ -157,7 +157,7 @@ if result.returncode != 0:
 task_center #156：让朱老师填写《私有云部署前信息问卷》。
 
 关键备注：
-雷允上药业私有云部署申请已提交；下一步需要引导客户朱老师填写部署前信息问卷。
+Acme Corp私有云部署申请已提交；下一步需要引导客户朱老师填写部署前信息问卷。
 问卷链接：https://...
 ```
 
@@ -201,7 +201,7 @@ task_center #156：让朱老师填写《私有云部署前信息问卷》。
 
 | 参数 | 作用 | 说明 |
 |---|---|---|
-| `--message` | 给 Agent 的任务内容 | 例如“请总结这份日志并发给南哥” |
+| `--message` | 给 Agent 的任务内容 | 例如“请总结这份日志并发给task owner” |
 | `--agent` / `--session-id` | 选择 Agent 在哪个会话里运行 | 必须提供其一，否则 Agent 不知道在哪里跑 |
 | `--reply-channel` / `--reply-to` | 选择最终投递到哪里 | 这里只负责投递目标，不负责选择会话 |
 
@@ -216,10 +216,10 @@ task_center #156：让朱老师填写《私有云部署前信息问卷》。
 ```bash
 openclaw agent \
   --agent main \
-  --message "Feishu 授权链路维护纪要：doc=/home/velen/.openclaw/workspace/docs/reports，请用简洁中文总结发给南哥" \
+  --message "Feishu 授权链路维护纪要：doc=/home/velen/.openclaw/workspace/docs/reports，请用简洁中文总结发给task owner" \
   --deliver \
   --reply-channel feishu \
-  --reply-to user:ou_8ca37a28527b51fdad39a83998c37625
+  --reply-to user:ou_example_user
 ```
 
 说明：
@@ -242,10 +242,10 @@ sid="oneoff-feishu-report-$(date +%Y%m%d%H%M%S)"
 openclaw agent \
   --agent main \
   --session-id "$sid" \
-  --message "请读取 /path/to/report 并总结成简洁中文发给南哥。" \
+  --message "请读取 /path/to/report 并总结成简洁中文发给task owner。" \
   --deliver \
   --reply-channel feishu \
-  --reply-to user:ou_8ca37a28527b51fdad39a83998c37625
+  --reply-to user:ou_example_user
 ```
 
 说明：
@@ -263,10 +263,10 @@ openclaw agent \
 openclaw agent \
   --agent main \
   --session-id taskcenter-maintenance-report \
-  --message "请读取 /path/to/report 并总结成简洁中文发给南哥" \
+  --message "请读取 /path/to/report 并总结成简洁中文发给task owner" \
   --deliver \
   --reply-channel feishu \
-  --reply-to user:ou_8ca37a28527b51fdad39a83998c37625
+  --reply-to user:ou_example_user
 ```
 
 说明：
@@ -281,7 +281,7 @@ openclaw agent \
 import subprocess
 from datetime import datetime
 
-prompt = "请把以下错误日志总结成简洁中文提醒南哥：\n" + log_text
+prompt = "请把以下错误日志总结成简洁中文提醒task owner：\n" + log_text
 session_id = "oneoff-error-summary-" + datetime.now().strftime("%Y%m%d%H%M%S")
 
 result = subprocess.run(
@@ -292,7 +292,7 @@ result = subprocess.run(
         "--message", prompt,
         "--deliver",
         "--reply-channel", "feishu",
-        "--reply-to", "user:ou_8ca37a28527b51fdad39a83998c37625",
+        "--reply-to", "user:ou_example_user",
     ],
     text=True,
     capture_output=True,
@@ -362,7 +362,7 @@ openclaw cron add \
   --message "请只发送一句：提醒：命令行触发cron测试" \
   --announce \
   --channel feishu \
-  --to user:ou_8ca37a28527b51fdad39a83998c37625 \
+  --to user:ou_example_user \
   --delete-after-run
 ```
 
@@ -377,7 +377,7 @@ openclaw cron add \
   --message "你是 OpenClaw 数据备份健康检查助手。请检查最新备份 manifest；如果全部正常，只输出 NO_REPLY；如果异常，输出简洁中文告警。" \
   --announce \
   --channel feishu \
-  --to user:ou_8ca37a28527b51fdad39a83998c37625 \
+  --to user:ou_example_user \
   --timeout-seconds 180
 ```
 
@@ -432,7 +432,7 @@ Dashboard 中通常对应：
 例如可以写：
 
 ```text
-提醒：现在检查备份状态。请读取 xxx 并判断是否需要提醒南哥。
+提醒：现在检查备份状态。请读取 xxx 并判断是否需要提醒task owner。
 ```
 
 但语义仍然是：
@@ -556,10 +556,10 @@ openclaw message send
 
 ```bash
 openclaw agent \
-  --message "请总结这份报告发给南哥" \
+  --message "请总结这份报告发给task owner" \
   --deliver \
   --reply-channel feishu \
-  --reply-to user:ou_8ca37a28527b51fdad39a83998c37625
+  --reply-to user:ou_example_user
 ```
 
 典型报错：
@@ -579,10 +579,10 @@ Pass --to <E.164>, --session-id, or --agent to choose a session
 ```bash
 openclaw agent \
   --agent main \
-  --message "请总结这份报告发给南哥" \
+  --message "请总结这份报告发给task owner" \
   --deliver \
   --reply-channel feishu \
-  --reply-to user:ou_8ca37a28527b51fdad39a83998c37625
+  --reply-to user:ou_example_user
 ```
 
 ### 5.2 把 Feishu open_id 填到 `openclaw agent --to`
@@ -734,21 +734,21 @@ text="提醒：这里写要发送的内容"
 
 openclaw message send \
   --channel feishu \
-  --target user:ou_8ca37a28527b51fdad39a83998c37625 \
+  --target user:ou_example_user \
   --message "$text"
 ```
 
 ### 8.2 立即让 Agent 处理后发送：main agent 默认/主 session 模板
 
 ```bash
-prompt="请把以下内容总结成简洁中文提醒南哥：..."
+prompt="请把以下内容总结成简洁中文提醒task owner：..."
 
 openclaw agent \
   --agent main \
   --message "$prompt" \
   --deliver \
   --reply-channel feishu \
-  --reply-to user:ou_8ca37a28527b51fdad39a83998c37625
+  --reply-to user:ou_example_user
 ```
 
 注意：这个模板使用 main agent 默认/主 session，不等于当前飞书 DM 完整上下文。
@@ -756,7 +756,7 @@ openclaw agent \
 ### 8.3 立即让 Agent 处理后发送：一次性干净 session 模板
 
 ```bash
-prompt="请读取 /path/to/report 并总结成简洁中文提醒南哥：..."
+prompt="请读取 /path/to/report 并总结成简洁中文提醒task owner：..."
 sid="oneoff-agent-report-$(date +%Y%m%d%H%M%S)"
 
 openclaw agent \
@@ -765,7 +765,7 @@ openclaw agent \
   --message "$prompt" \
   --deliver \
   --reply-channel feishu \
-  --reply-to user:ou_8ca37a28527b51fdad39a83998c37625
+  --reply-to user:ou_example_user
 ```
 
 ### 8.4 立即让 Agent 处理后发送：固定 session 模板
@@ -779,7 +779,7 @@ openclaw agent \
   --message "$prompt" \
   --deliver \
   --reply-channel feishu \
-  --reply-to user:ou_8ca37a28527b51fdad39a83998c37625
+  --reply-to user:ou_example_user
 ```
 
 ### 8.5 定时让 Agent 处理后发送：一次性任务模板
@@ -789,10 +789,10 @@ openclaw cron add \
   --name "一次性 Agent 定时提醒" \
   --at "2026-05-18T09:00:00+08:00" \
   --session isolated \
-  --message "请读取 TaskCenter #156 的最新信息，生成一条简洁中文提醒发给南哥。" \
+  --message "请读取 TaskCenter #156 的最新信息，生成一条简洁中文提醒发给task owner。" \
   --announce \
   --channel feishu \
-  --to user:ou_8ca37a28527b51fdad39a83998c37625 \
+  --to user:ou_example_user \
   --delete-after-run
 ```
 
@@ -804,10 +804,10 @@ openclaw cron add \
   --cron "0 22 * * *" \
   --tz "Asia/Shanghai" \
   --session isolated \
-  --message "你是任务晚间收口助手。请读取 task_center 今日任务，按已完成、待确认/未完成、已延期/已取消分组，发给南哥。" \
+  --message "你是任务晚间收口助手。请读取 task_center 今日任务，按已完成、待确认/未完成、已延期/已取消分组，发给task owner。" \
   --announce \
   --channel feishu \
-  --to user:ou_8ca37a28527b51fdad39a83998c37625 \
+  --to user:ou_example_user \
   --timeout-seconds 180
 ```
 

@@ -1,7 +1,7 @@
 # CustomerMaterial 字段收口 + 移动端「知识」Tab（2026-05-04 Phase 2）
 
 创建时间：2026-05-04
-负责人：南哥 / OpenClaw main / Cascade
+负责人：task owner / OpenClaw main / Cascade
 父 Plan：`Plan/2026-05-04-customer-knowledge-revision.md`
 
 目标：

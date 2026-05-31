@@ -1,7 +1,7 @@
 # 移动端知识事实按客户项目组织 + 概览接口（2026-05-07 Phase 4）
 
 创建时间：2026-05-07  
-负责人：南哥 / OpenClaw  
+负责人：task owner / OpenClaw  
 父 Plan：`Plan/2026-05-06-mobile-task-fact-and-board-customer-rename.md`
 
 ## 目标
@@ -104,7 +104,7 @@ Facts 层：
     {
       "customer_id": 1,
       "customer_name": "佰世赛",
-      "area": "客户_佰世赛",
+      "area": "客户_A",
       "fact_count": 42,
       "project_count": 3,
       "latest_fact_at": "2026-05-06T10:00:00Z",

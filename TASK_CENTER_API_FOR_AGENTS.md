@@ -268,7 +268,7 @@ with urllib.request.urlopen(req, timeout=10) as resp:
 
 ## 9. 客户材料（NotebookLM 客户画像素材）
 
-当南哥在待办 / 客户跟进语境中提到**跟进过程、跟进结果、客户反馈、聊天截图、会议结论、交付卡点**时，除了更新任务本身，还应把可沉淀内容写入客户材料。
+当task owner在待办 / 客户跟进语境中提到**跟进过程、跟进结果、客户反馈、聊天截图、会议结论、交付卡点**时，除了更新任务本身，还应把可沉淀内容写入客户材料。
 
 当前规则：
 - 客户材料的**唯一公开入口**是 `/api/customer-materials`。`/api/customer-materials-v2` 已在 2026-05-04 Phase 2 从代码中删除，调用会 404。
@@ -311,7 +311,7 @@ curl 'http://127.0.0.1:8000/api/customer-materials?review_batch_id=10'
 curl 'http://127.0.0.1:8000/api/customer-materials?status=pending'
 
 # 按旧项目标签兼容查询
-curl 'http://127.0.0.1:8000/api/customer-materials?project=客户_苏中药业'
+curl 'http://127.0.0.1:8000/api/customer-materials?project=客户_A'
 
 # 按任务关联查询（兼容）
 curl 'http://127.0.0.1:8000/api/tasks/105/customer-materials'
@@ -325,12 +325,12 @@ curl -X PATCH http://127.0.0.1:8000/api/customer-materials/1 \
   -H 'Content-Type: application/json' \
   -d '{"status": "approved"}'
 
-# 修改正文（南哥审核时改错别字 / 补遗漏）
+# 修改正文（task owner审核时改错别字 / 补遗漏）
 curl -X PATCH http://127.0.0.1:8000/api/customer-materials/1 \
   -H 'Content-Type: application/json' \
   -d '{
     "title": "佰世赛｜客户级｜2026-05-01 ~ 2026-05-07 客户事实与总结",
-    "raw_facts_markdown": "南哥审核后微调过的事实原文..."
+    "raw_facts_markdown": "task owner审核后微调过的事实原文..."
   }'
 
 # 软归档，默认列表不再返回；如需看归档材料，加 include_archived=true
@@ -405,7 +405,7 @@ TaskCenter 新增了客户知识模块，支持从日常跟进中采集客户事
 
 - **不使用 feishu-task Skill**：当前不使用飞书任务机制，提醒靠 OpenClaw cron。
 - **不修改 nblm Skill**：nblm 是第三方基础能力，只在上传链路调用其 `upload-text` 等命令。
-- **不自动上传 NotebookLM**：必须等南哥审核确认后才上传。
+- **不自动上传 NotebookLM**：必须等task owner审核确认后才上传。
 
 ### 10.3 Customers API
 
@@ -422,8 +422,8 @@ curl -X POST http://127.0.0.1:8000/api/customers \
   -d '{
     "name": "佰世赛",
     "key": "baishisai",
-    "aliases": ["客户_佰世赛", "BSS"],
-    "area": "客户_佰世赛",
+    "aliases": ["客户_A", "BSS"],
+    "area": "客户_A",
     "tags": ["客户"]
   }'
 
@@ -583,7 +583,7 @@ curl -X PATCH http://127.0.0.1:8000/api/customer-materials/1 \
   -H 'Content-Type: application/json' \
   -d '{
     "status": "approved",
-    "raw_facts_markdown": "南哥审核后微调过的事实原文..."
+    "raw_facts_markdown": "task owner审核后微调过的事实原文..."
   }'
 
 # 标记已上传（上传 NotebookLM 成功后调用）
@@ -717,7 +717,7 @@ curl 'http://127.0.0.1:8000/api/tasks?customer_id=1&status=doing'
 
 ### 10.10 审核回复约定
 
-南哥在飞书审核通过后，回复格式为：
+task owner在飞书审核通过后，回复格式为：
 
 - `审核完成 #A #B #C`：上传指定 id 的 material（仅 `status=approved` 的会被上传）。
 - `审核完成 batch #N`：上传 batch #N 下所有 `status=approved` 的 material。
@@ -753,7 +753,7 @@ curl 'http://127.0.0.1:8000/api/tasks?customer_id=1&status=doing'
 
 无 fact 时输出 `{"status":"ok","message":"no_facts_this_week","period":[...],"warnings":[...]}`，不创建 batch。
 
-主代理消费此 JSON，转人类可读消息发到飞书，让南哥到 TaskCenter 移动端审核。**不发全文**，只发 batch_id + material id/客户/项目 + warning 列表。
+主代理消费此 JSON，转人类可读消息发到飞书，让task owner到 TaskCenter 移动端审核。**不发全文**，只发 batch_id + material id/客户/项目 + warning 列表。
 
 ---
 

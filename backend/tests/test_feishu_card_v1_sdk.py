@@ -46,12 +46,12 @@ def test_markdown_to_card_v1_extracts_heading_without_schema_and_splits_blocks()
 
 
 def test_text_to_card_v1_builds_small_reminder_card() -> None:
-    card = text_to_card_v1("提醒：跟进同程报价清单流程。", title="TaskCenter 提醒")
+    card = text_to_card_v1("提醒：跟进Example Customer报价清单流程。", title="TaskCenter 提醒")
 
     assert "schema" not in card
     assert card["header"]["title"]["content"] == "TaskCenter 提醒"
     assert card["config"]["update_multi"] is False
-    assert card["elements"][0]["content"] == "提醒：跟进同程报价清单流程。"
+    assert card["elements"][0]["content"] == "提醒：跟进Example Customer报价清单流程。"
     assert serialized_card_size(card).within_limit
 
 

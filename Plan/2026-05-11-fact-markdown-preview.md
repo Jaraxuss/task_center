@@ -1,7 +1,7 @@
 # 事实详情页 Markdown 渲染预览 + 编辑切换（2026-05-11）
 
 创建时间：2026-05-11  
-负责人：南哥 / Kiro  
+负责人：task owner / Kiro  
 父 Plan：`Plan/2026-05-07-mobile-knowledge-project-facts.md`
 
 ## 目标

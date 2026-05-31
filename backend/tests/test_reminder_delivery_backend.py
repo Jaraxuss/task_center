@@ -213,7 +213,7 @@ def test_update_card_reminder_serializes_event_payload(api_client: TestClient) -
             "channel": "feishu",
             "note": "提醒：测试消息，10 分钟后开会。",
             "delivery_mode": "feishu_card_v2",
-            "receive_id": "ou_8ca37a28527b51fdad39a83998c37625",
+            "receive_id": "ou_example_user",
             "receive_id_type": "open_id",
             "ai_prompt": None,
         },
@@ -223,7 +223,7 @@ def test_update_card_reminder_serializes_event_payload(api_client: TestClient) -
     body = response.json()
     reminder = body["reminders"][0]
     assert reminder["delivery_mode"] == "feishu_card_v2"
-    assert reminder["receive_id"] == "ou_8ca37a28527b51fdad39a83998c37625"
+    assert reminder["receive_id"] == "ou_example_user"
     update_events = [event for event in body["events"] if event["event_type"] == "reminder_added"]
     assert update_events
     assert update_events[0]["payload"]["updated"]["remind_at"] == "2026-05-20T21:59:00Z"

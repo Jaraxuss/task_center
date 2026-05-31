@@ -260,10 +260,10 @@ openclaw cron add \
 - `systemEvent` 默认不请求 delivery，不要靠它验证飞书送达；
 - 判断是否真的投递，看 run history 里的 `deliveryStatus`。
 
-当前南哥 DM 常用目标：
+当前task owner DM 常用目标：
 
 ```text
-user:ou_8ca37a28527b51fdad39a83998c37625
+user:ou_example_user
 ```
 
 ---
@@ -391,7 +391,7 @@ openclaw cron add \
   --cron "0 22 * * *" \
   --tz "Asia/Shanghai" \
   --session isolated \
-  --message "你是任务晚间收口助手。请读取 task_center 今日任务，分组整理后发给南哥。" \
+  --message "你是任务晚间收口助手。请读取 task_center 今日任务，分组整理后发给task owner。" \
   --announce \
   --channel feishu \
   --to user:ou_xxx \

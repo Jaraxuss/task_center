@@ -25,7 +25,7 @@ DB_PATH = Path("backend/data/task_center.db")
 
 # project 字面值的硬编码分类（C/D/E）
 CUSTOMER_OPS_PROJECTS = {"客户跟进", "客户交接", "客户反馈"}
-INTERNAL_PROJECTS = {"内部协同", "OpenClaw/TaskCenter", "NDR统计", "影刀6.0灰度", "内部_培训"}
+INTERNAL_PROJECTS = {"内部协同", "OpenClaw/TaskCenter", "NDR统计", "Example_Project_Beta", "内部_培训"}
 PERSONAL_PROJECTS = {"生活", "个人事务", "出差", "闲鱼"}
 
 
