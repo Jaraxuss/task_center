@@ -1,89 +1,161 @@
-# Task Center
+# TaskCenter
 
-本项目是一个面向日常任务管理与提醒协同的本地任务中心，目标是把 **聊天侧的任务编排**、**浏览器里的可视化操作**、以及后续可能扩展的 **移动端查看与处理** 收到同一套数据与规则里。
+[中文版本](README.zh-CN.md)
 
-## 现在的工程结构
+TaskCenter is a context-aware task and reminder backend for AI agents, designed to turn customer conversations, meeting notes, and follow-up intentions into structured, auditable tasks with the right context attached.
 
-当前项目由 **2 个活跃代码单元** 组成（桌面端已归档）：
+It is not just another todo list. TaskCenter is built for the moment when a reminder fires and the human or agent needs to know what the task is, why it matters, what happened before, and what should happen next.
 
-1. **`backend/`**
-   - FastAPI + SQLite
-   - 负责任务、提醒、事件日志、周期任务、dashboard 聚合接口
-   - 是整个系统的单一数据事实来源
-   - 内置飞书卡片 SDK：`backend/scripts/sdk/feishu-card-v1/` 与 `backend/scripts/sdk/feishu-card-v2/`
+## Why TaskCenter Exists
 
-2. **`mobile_frontend/`**
-   - React + TypeScript + Vite
-   - 独立移动端前端
-   - **它是一个独立 git 仓库**，不和主仓历史混在一起
+Traditional reminders are good at saying "do this now." They are less good at preserving the surrounding context: the meeting note, customer commitment, previous decision, delivery blocker, or follow-up owner.
 
-3. **`archive/frontend/`**（已归档，不再维护）
-   - 原桌面 Web 前端，详见 `archive/README.md`
+TaskCenter keeps tasks, reminders, events, and customer context connected so AI agents and humans can collaborate safely. The core use cases are customer follow-up, meeting notes to actions, evening reviews, recurring reminders, and human-in-the-loop task handling.
 
-> 说明：`backend/` 位于主仓；`mobile_frontend/` 是嵌套的独立子仓。
+## What It Does
 
-## 先看哪里
+- Create, update, complete, defer, and cancel tasks through an agent-friendly REST API
+- Store reminders, recurrence rules, task events, and customer context
+- Preserve an audit trail for task state changes and reminder operations
+- Support context-aware customer follow-up workflows
+- Provide a lightweight mobile frontend for review and quick task actions
+- Store timestamps in UTC while using `Asia/Shanghai` semantics for display and daily grouping by default
+- Optionally send reminder cards through Feishu integrations using synthetic public examples
 
-如果是第一次接手，建议按这个顺序看：
+## Architecture
 
-1. `docs/PROJECT_OVERVIEW.md` —— 当前项目现状、三块代码职责、修改落点、联动关系
-2. `docs/API_CONTRACT.md` —— 接口与字段约定
-3. `docs/TIMEZONE_DESIGN.md` —— 当前时间语义，避免改时间逻辑时踩雷
-4. `backend/README.md` / `mobile_frontend/README.md` —— 各自启动方式
+```text
+Chat / Agent
+    |
+    v
+TaskCenter API (FastAPI)
+    |
+    v
+SQLite + SQLAlchemy
+    |
+    +--> Mobile UI (React + Vite)
+    +--> Reminder delivery / Feishu card helpers
+    +--> Audit events and customer context
+```
 
-## 当前关键约定
+The backend is the source of truth for task state, time semantics, recurrence, reminders, and event history. The mobile frontend is a separate Git submodule focused on lightweight review and task handling.
 
-### 1. 数据与业务真相在后端
-- `backend/` 是单一事实来源
-- 前端可以做展示层兼容，但不要把核心业务规则偷偷分叉到前端
+## Repository Layout
 
-### 2. 时间语义已经统一
-当前采用：
+```text
+backend/           FastAPI, SQLite, SQLAlchemy, reminders, recurrence, events
+mobile_frontend/   React, TypeScript, Vite mobile UI (Git submodule)
+docs/              Product notes, API contract, timezone design, SDK docs
+archive/frontend/  Archived desktop frontend, kept for historical reference
+```
 
-- **数据库：UTC aware 时间存储**
-- **API：ISO 8601 UTC 字符串**
-- **展示与按日分组：`Asia/Shanghai`**
+## Quickstart
 
-改时间相关逻辑前，先读：`docs/TIMEZONE_DESIGN.md`
+Clone with the mobile frontend submodule:
 
-### 3. 移动端是独立仓
-- `mobile_frontend/` 改动要在子仓里单独提交
-- 不要把它当作主仓普通子目录一起 commit
+```bash
+git clone --recurse-submodules https://github.com/Jaraxuss/task_center.git
+cd task_center
+```
 
-### 4. 桌面端已归档
-- `archive/frontend/` 保留历史但不再维护，不在 CI 上构建
+If you already cloned without submodules:
 
-## 开发时最常见的修改落点
+```bash
+git submodule update --init --recursive
+```
 
-- 改任务数据模型 / API / 周期任务：`backend/`
-- 改手机端视图与交互：`mobile_frontend/`
-- 改跨端公共语义（例如时间规则、字段口径、状态约定）：优先先改后端和 docs，再补前端适配
+Start the backend:
 
-## 最近值得记住的一次演进
+```bash
+cd backend
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn main:app --reload --host 127.0.0.1 --port 8000
+```
 
-当前项目已经完成一轮比较重要的时间治理：
+Start the mobile frontend:
 
-- 后端时间字段统一按 UTC aware 存储
-- API 输入输出统一为 ISO 8601 UTC
-- Web / Mobile 的今日、逾期、计划分组都改成按北京时间语义判断
+```bash
+cd ../mobile_frontend
+cp .env.example .env.local
+npm install
+npm run dev
+```
 
-因此，后续如果看到：
-- `slice(0, 10)` 直接截日期
-- 裸 `new Date()` 做业务日期判断
-- naive datetime 直接写库
+Open:
 
-都应该优先怀疑，而不是继续沿用。
+```text
+http://localhost:5174
+```
 
-## 文档导航
+Backend API docs are available at:
 
-- `docs/PROJECT_OVERVIEW.md`：**当前项目总览（推荐入口）**
-- `docs/PRD.md`：产品目标与范围
-- `docs/API_CONTRACT.md`：接口契约
-- `docs/TIMEZONE_DESIGN.md`：时间系统设计
-- `backend/scripts/sdk/README.md`：飞书卡片 V1 / V2 SDK 统一入口
-- `docs/FEISHU_CARD_V1_SDK.md`：飞书 Card JSON 1.0 SDK 说明
-- `docs/FEISHU_CARD_V2_SDK.md`：飞书 Card JSON 2.0 SDK 说明
-- `docs/HANDOFF.md`：早期交接文档（偏历史阶段说明）
-- `docs/ITERATION_BACKLOG.md`：迭代积压
+```text
+http://127.0.0.1:8000/docs
+```
 
-如果你是要“快速上手修改”，不要先埋头翻所有代码，先看 `docs/PROJECT_OVERVIEW.md`。
+## Development
+
+Backend checks:
+
+```bash
+cd backend
+source .venv/bin/activate
+pip install -r requirements-dev.txt
+ruff check .
+pytest
+```
+
+Mobile build:
+
+```bash
+cd mobile_frontend
+npm run build
+```
+
+## Documentation
+
+- `docs/PROJECT_OVERVIEW.md`: current system map and recommended onboarding entry point
+- `docs/PRD.md`: product goals, scope, and workflow assumptions
+- `docs/API_CONTRACT.md`: API and field expectations
+- `docs/TIMEZONE_DESIGN.md`: timezone model for dates, reminders, recurrence, and daily grouping
+- `TASK_CENTER_API_FOR_AGENTS.md`: agent-facing API usage guide
+- `backend/README.md`: backend setup, API overview, and runtime notes
+- `mobile_frontend/README.md`: mobile frontend setup and interaction model
+- `backend/scripts/sdk/README.md`: Feishu card helper scripts
+- `docs/FEISHU_CARD_V1_SDK.md`: Feishu Card JSON 1.0 notes
+- `docs/FEISHU_CARD_V2_SDK.md`: Feishu Card JSON 2.0 notes
+
+## Privacy And Safety
+
+TaskCenter is designed for workflows that may involve sensitive customer context. The public repository only includes synthetic examples.
+
+Do not commit real customer data, chat logs, Feishu/OpenAI credentials, user IDs, real `open_id` values, production databases, logs, backups, or local `.env` files.
+
+Use `.env.example` as a template and keep local runtime data under ignored directories such as `backend/data/` and `backend/logs/`.
+
+## Data Model Highlights
+
+TaskCenter centers on a few durable concepts:
+
+- `Task`: the action item, status, owner-facing text, due time, and project/customer linkage
+- `Reminder`: scheduled delivery metadata and optional external message target
+- `TaskEvent`: auditable history for state changes and reminder updates
+- `TaskRecurrence`: recurring task rules and next-run calculation
+- Customer context: facts and materials that help agents retain follow-up memory
+
+The project stores UTC-aware timestamps and returns ISO 8601 UTC strings through the API. UI grouping and display use `Asia/Shanghai` semantics unless configured otherwise.
+
+## Roadmap
+
+- Keep the backend API stable for agent-driven task creation and updates
+- Improve reminder delivery reliability and observability
+- Expand context-aware customer follow-up workflows
+- Improve mobile task editing and review interactions
+- Add lightweight CI and public contribution workflows
+- Keep examples synthetic and safe for open source review
+
+## License
+
+MIT. See `LICENSE`.
